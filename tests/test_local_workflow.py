@@ -8,11 +8,16 @@ from unittest.mock import patch
 import pytest
 from PIL import Image,ImageDraw
 
+def _png_bytes():
+    out=io.BytesIO()
+    Image.new("RGB",(20,20),"white").save(out,format="PNG")
+    return out.getvalue()
+
 def test_queue_claim_and_delete(tmp_path,monkeypatch):
     import jobs
     monkeypatch.setattr(jobs,"ROOT",tmp_path)
     monkeypatch.setattr(jobs,"DB",tmp_path/"jobs.sqlite3")
-    ids=[jobs.submit(f"paper_{i}.png",b"placeholder",{"layout_backend":"xycut"}) for i in range(12)]
+    ids=[jobs.submit(f"paper_{i}.png",_png_bytes(),{"layout_backend":"xycut"}) for i in range(12)]
     assert len(set(ids))==12
     assert [j["status"] for j in jobs.list_jobs()]==["queued"]*12
     claimed=[jobs.claim() for _ in range(12)]
@@ -40,7 +45,7 @@ def test_review_preserves_changes_and_exports(tmp_path,monkeypatch):
     import jobs
     monkeypatch.setattr(jobs,"ROOT",tmp_path)
     monkeypatch.setattr(jobs,"DB",tmp_path/"jobs.sqlite3")
-    jid=jobs.submit("sample.png",b"some bytes",{})
+    jid=jobs.submit("sample.png",_png_bytes(),{})
     data={"filename":"sample.png","pages":[
         {"page":1,"layout_preview":"THIS_IS_NOT_A_REAL_IMAGE","regions":[
             {"id":"p1_r1","reading_order_guess":1,"article_id":None,"text":"First passage","bbox":[1,1,10,10],"ocr_confidence":81,"type":"plain_text"},
