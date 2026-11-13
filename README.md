@@ -2,7 +2,7 @@
 
 An experimental, **local-first** web application for batch transcription of scanned historical newspapers.
 
-**What it supports:** multi-PDF and image upload, durable SQLite jobs, a separate background worker, pretrained DocLayout-YOLO or explicit XY-cut layout detection, region-wise Tesseract OCR, page previews, saved manual corrections and article labels, separate per-article DOCX/TXT output, JSON metadata, and optional image-grounded suggestions via local Ollama or OpenAI.
+**What it supports:** multi-PDF and image upload, durable SQLite jobs, a separate background worker, pretrained DocLayout-YOLO or explicit XY-cut layout detection, region-wise Tesseract OCR, column-aware provisional reading order, page previews, saved manual corrections and article labels, separate per-article DOCX/TXT output, JSON metadata, and optional image-grounded suggestions via local Ollama or OpenAI.
 
 **Research status:** A tested software prototype, **not a validated high-accuracy historical newspaper transcriber**. On old, busy newspaper pages, a generic pretrained layout model may still miss regions or group articles incorrectly. No measured CER/WER exists yet for the 1907 *Evening Star* example because there is no manually corrected page-level reference.
 
@@ -37,7 +37,7 @@ For French scans, install Tesseract French trained data and select `fra` or `eng
    - Select **Remove** beside a waiting newspaper to delete it immediately.
    - Select **Cancel running newspaper** to request a stop after the current page. When cancellation completes, its saved job can be deleted.
    - Queue status refreshes independently of the editing forms so unsaved corrections are not wiped while typing.
-5. Review text and proposed reading order region by region; **Save correction** persists changes to disk.
+5. Check the numbers on the annotated newspaper: wide top headlines and masthead are read first, followed by each inferred newspaper column from top to bottom and left to right. A wide section header spanning multiple columns is marked uncertain. This is not automated article reconstruction. Review text and proposed reading order region by region; **Save correction** persists changes to disk.
 6. Give fragments from one newspaper story the same **Article ID** to combine them in the article export.
 7. Choose **Prepare collection ZIP** to download all completed newspapers in one archive, or download an individual job ZIP. After clicking a download, the UI asks whether to keep the results or clear the local batch and begin again. **Nothing is erased automatically by a download.** Confirmation is required; the reset button remains disabled while a file is running.
 8. Individual ZIPs contain complete `transcription.txt`, `transcription.docx`, `structured.json` and `articles/<id>.txt/.docx`.
@@ -78,6 +78,7 @@ Audit results are written to `benchmark/results/audit.csv`; for measured CER/WER
 
 ## Remaining limitations
 
+- The column-aware order is a heuristic, not an article-linking model; complex section headings and article continuations may still require correction. **Already processed jobs retain their old order**; remove and requeue those files to regenerate the preview and exported transcription using this improvement.
 - Pretrained model is **general document layout**, not specifically trained to separate articles in 1907 newspapers. Article continuation across columns or pages requires explicit human labeling.
 - Large PDF batches are queued and resumable between app restarts but processing is currently **one local worker**; there is no multi-user production deployment or parallel GPU scaling.
 - Page preview provides region rectangles, not a fully interactive drag-and-drop segmentation editor; article linking and reading order are controlled by forms.
