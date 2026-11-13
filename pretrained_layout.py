@@ -47,7 +47,7 @@ def detect_pretrained(image: Image.Image, min_confidence: float = 0.20):
     for result in results:
         names = result.names
         for row in result.boxes:
-            label = str(names[int(row.cls[0])]).lower()
+            label = str(names[int(row.cls[0])]).lower().replace(" ", "_")
             if label in SKIP_CLASSES or label not in TEXT_CLASSES:
                 continue
             x1, y1, x2, y2 = [round(float(x)) for x in row.xyxy[0].tolist()]
