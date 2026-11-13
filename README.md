@@ -33,10 +33,13 @@ For French scans, install Tesseract French trained data and select `fra` or `eng
 1. Upload several PDF or image newspapers.
 2. Pick the **pretrained** layout model, choose OCR language, DPI, and review threshold.
 3. Add files to queue. The separate worker processes one file at a time; submitted jobs survive restarting the UI.
-4. Refresh queue to see completed/failed jobs. Each completed file has page previews and region boxes.
+4. The queue refreshes every five seconds. It shows each waiting file's position, page count, and estimated time before processing begins. Estimates are calculated from actual observed processing speed and show **Calculating...** when there is not enough evidence yet. Use **Refresh completed results** to load finished jobs into the review interface.
+   - Select **Remove** beside a waiting newspaper to delete it immediately.
+   - Select **Cancel running newspaper** to request a stop after the current page. When cancellation completes, its saved job can be deleted.
+   - Queue status refreshes independently of the editing forms so unsaved corrections are not wiped while typing.
 5. Review text and proposed reading order region by region; **Save correction** persists changes to disk.
 6. Give fragments from one newspaper story the same **Article ID** to combine them in the article export.
-7. Choose **Prepare collection ZIP** to download all completed newspapers in one archive, or download an individual job ZIP.
+7. Choose **Prepare collection ZIP** to download all completed newspapers in one archive, or download an individual job ZIP. After clicking a download, the UI asks whether to keep the results or clear the local batch and begin again. **Nothing is erased automatically by a download.** Confirmation is required; the reset button remains disabled while a file is running.
 8. Individual ZIPs contain complete `transcription.txt`, `transcription.docx`, `structured.json` and `articles/<id>.txt/.docx`.
 
 **Security:** Local-only UI has no authentication. Never expose port 8501 directly on a public network. Files live in `~/.newspaper_ocr_lab` and are removed when you delete a completed/failed job. No API keys are saved in SQLite. The local upload limit is 250 MB per file; PDF page cap defaults to 500 pages per file; processing speed depends on available RAM/CPU/GPU.
@@ -58,7 +61,7 @@ pip install pytest
 python -m pytest -q
 ```
 
-The GitHub Actions **OCR regression tests** suite covers synthetic OCR, multi-page PDFs, invalid uploads, crash isolation, background queue state, review persistence, per-article and collection exports, a Streamlit smoke test, and mocked pretrained detector outputs. A second **Pretrained model integration** workflow downloads the actual weights and performs real inference when triggered.
+The GitHub Actions **OCR regression tests** suite covers synthetic OCR, multi-page PDFs, invalid uploads, durable queue state, page-count metadata, estimated-time arithmetic, queue removal, cancellation, atomic reset, review persistence, per-article and collection exports, a Streamlit smoke test, and mocked pretrained detector outputs. A second **Pretrained model integration** workflow downloads the actual weights and performs real inference when triggered.
 
 A passing synthetic test **does not demonstrate accuracy on archival newspapers**. Run the real-scan benchmark:
 
