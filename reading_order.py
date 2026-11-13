@@ -35,10 +35,16 @@ def _lane_bounds(regions, page_width, min_gap=None):
     if not regions:
         return []
     width = float(page_width)
+    # Local section headers can cover two neighboring columns while occupying
+    # less than half of the page. Exclude width outliers, not just pagewide text.
+    candidate_widths=[_text_width(r) for r in regions
+                      if .10*width <= _text_width(r) <= .48*width]
+    typical=median(candidate_widths) if candidate_widths else width*.35
+    max_column_width=min(.48*width,1.45*typical)
     intervals = []
     for region in regions:
         x0, _, x1, _ = _box(region)
-        if x1 - x0 > .48 * width:
+        if x1 - x0 > max_column_width:
             continue
         if x1 - x0 < max(12, .012 * width):
             continue
