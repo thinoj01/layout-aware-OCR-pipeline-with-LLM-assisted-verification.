@@ -6,6 +6,7 @@ Generates OCR outputs and audit.csv. Accuracy requires independently reviewed re
 import argparse
 import csv
 import json
+import time
 from pathlib import Path
 import requests
 from ocr_engine import Settings,process_files
@@ -67,8 +68,16 @@ def main():
                 data,_=download_scan(session,date)
                 target.write_bytes(data)
                 print("Downloaded",date)
+                time.sleep(2.0)  # Respect LOC rate limits.
+            except requests.HTTPError as exc:
+                print("Unavailable",date,str(exc)[:150])
+                if exc.response is not None and exc.response.status_code==429:
+                    print("LOC rate limit reached. Stop downloading; retry later or provide local scans.")
+                    break
+                time.sleep(2.0)
             except Exception as exc:
                 print("Unavailable",date,str(exc)[:150])
+                time.sleep(2.0)
     rows=[]
     for filename in sorted(args.images.iterdir()):
         if filename.suffix.lower() not in {".jpg",".jpeg",".png",".tif",".tiff",".webp",".pdf"}:
