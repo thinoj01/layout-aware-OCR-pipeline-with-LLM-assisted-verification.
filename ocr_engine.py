@@ -184,6 +184,10 @@ def transcribe_page(img, page_no, settings):
             "ocr_confidence":confidence,
             "needs_review":confidence<settings.confidence_threshold or block.source=="sparse-ocr-recovery",
             "verification":None,"source":block.source})
+    # Newspaper columns are ordered after every OCR crop exists. Detector
+    # output order is not a valid transcription order.
+    from reading_order import order_regions
+    regions=order_regions(regions,img.width,img.height)
     if settings.verify:
         if not settings.model.startswith("ollama:") and not settings.api_key:
             raise ValueError("An API key is required for OpenAI verification")
@@ -209,7 +213,7 @@ def transcribe_page(img, page_no, settings):
     return {"page":page_no,"size":list(img.size),"regions":regions,
         "layout_preview":base64.b64encode(thumb.getvalue()).decode("ascii"),
         "text":"\n\n".join(r["text"] for r in regions),
-        "warning":"XY-cut order is provisional; article grouping and side notes need human review."}
+        "warning":"Column-based order is provisional; multicolumn section banners, illustrations and article continuations require human review."}
 
 def process_files(files,settings,progress=None):
     results=[]
