@@ -87,3 +87,19 @@ def export_job(job_id):
             "notice":"Article grouping comes from researcher-supplied IDs. Unlabeled regions remain only in the complete transcription."
         },indent=2))
     return out.getvalue()
+
+def export_completed_collection(job_ids):
+    """Create one archive of completed job archives without cross-job name collisions."""
+    buffer=io.BytesIO()
+    manifest=[]
+    with zipfile.ZipFile(buffer,"w",zipfile.ZIP_DEFLATED) as combined:
+        for job_id in job_ids:
+            record=get_job(job_id)
+            if record is None or record["status"]!="completed":
+                continue
+            folder=f"newspaper_{job_id}"
+            combined.writestr(folder+"/transcriptions.zip",export_job(job_id))
+            manifest.append({"job_id":job_id,"filename":record["filename"]})
+        combined.writestr("collection_manifest.json",
+                          json.dumps(manifest,ensure_ascii=False,indent=2))
+    return buffer.getvalue()
