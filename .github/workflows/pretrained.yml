@@ -16,6 +16,8 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
+      - name: Install local Tesseract binary
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr fonts-dejavu-core
       - name: Install model and OCR dependencies
         run: |
           python -m pip install -r requirements.txt
