@@ -46,3 +46,23 @@ def test_multipage_pdf():
 
 def test_sanitize():
     assert sanitize("../../bad file.pdf")=="bad_file"
+
+
+def test_no_cross_column_merging():
+    result=process_files([("columns.png",sample_image())],Settings())
+    page=result[0]["pages"][0]
+    assert len(page["regions"])>=2
+    assert page["text"].find("ALPHA")<page["text"].find("BETA")
+    assert "BETA" not in page["regions"][0]["text"]
+
+def test_corrections_propagate_to_exports():
+    result=process_files([("columns.png",sample_image())],Settings())
+    region=result[0]["pages"][0]["regions"][0]
+    region["text"]="RESEARCHER CORRECTED TEXT"
+    region["reading_order_guess"]=10
+    with zipfile.ZipFile(io.BytesIO(export_bundle(result))) as archive:
+        transcription=archive.read("columns/transcription.txt").decode("utf8")
+        assert "RESEARCHER CORRECTED TEXT" in transcription
+        obj=json.loads(archive.read("columns/structured.json"))
+        assert "layout_preview" not in obj["pages"][0]
+        assert obj["pages"][0]["regions"][0]["reading_order_guess"]==10
