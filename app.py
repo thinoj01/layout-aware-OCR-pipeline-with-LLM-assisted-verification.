@@ -1,83 +1,101 @@
-"""Human-in-the-loop newspaper OCR; Streamlit local interface."""
+"""Local research GUI. Start with python launch.py for background processing."""
 import base64
+import json
 import os
+from pathlib import Path
 import streamlit as st
-from ocr_engine import Settings, process_files, export_bundle
+from jobs import submit, list_jobs, get_job, delete
+from review import load_result,save_region,export_job
 
-st.set_page_config(page_title="Newspaper OCR Lab",layout="wide")
-st.title("Newspaper OCR Lab")
-st.caption("Free, local, multi-PDF transcription. Optional OpenAI image verification is billed separately.")
-st.warning("Region detection and reading order are experimental. Always review historical sources.")
+st.set_page_config(page_title="Historical Newspaper OCR Lab",layout="wide")
+st.title("Historical Newspaper OCR Lab")
+st.caption("Local research prototype: uploads, persistent queue, human review, article-level export.")
+st.warning("Model detections and reading order must be checked against the original scans. Do not expose this unauthenticated UI to the public Internet.")
 
 with st.sidebar:
-    st.header("Settings")
-    language=st.text_input("Tesseract language","eng")
+    st.header("New transcription job")
+    backend=st.selectbox("Layout detector",[
+        "pretrained","xycut"],index=0,
+        help="Pretrained requires optional ML dependencies and model weights. XY-cut is a geometric fallback.")
+    language=st.text_input("Tesseract languages","eng")
     dpi=st.slider("PDF rendering DPI",150,400,250,25)
-    threshold=st.slider("Review below OCR confidence",0,100,65)
-    verify=st.checkbox("Optional OpenAI image verification",False)
-    key=""
+    threshold=st.slider("Review below OCR confidence",0,100,80)
+    verification=st.selectbox("Vision verification",["Off","Local Ollama","OpenAI API"])
     model="gpt-4.1-mini"
-    limit=12
-    if verify:
-        st.warning("Image crops will leave your machine. Check rights and institutional permissions.")
-        key=st.text_input("OpenAI API key",os.getenv("OPENAI_API_KEY",""),type="password")
-        model=st.text_input("Vision model",model)
-        limit=st.number_input("Maximum regions verified per page",1,50,12)
-    st.caption("Never add API keys to GitHub. Local OCR requires none.")
-
-files=st.file_uploader("Upload multiple newspaper PDFs or images",
-    type=["pdf","png","jpg","jpeg","tif","tiff","webp"],
-    accept_multiple_files=True)
-if st.button("Transcribe all",disabled=not bool(files),type="primary"):
-    if verify and not key:
-        st.error("Enter an API key or disable optional verification.")
+    key=None
+    if verification=="Local Ollama":
+        model="ollama:"+st.text_input("Local Ollama model","qwen3-vl:4b")
+        st.caption("Ollama must be running at 127.0.0.1:11434. Suggestions are never auto-applied.")
+    elif verification=="OpenAI API":
+        key=st.text_input("API key",os.getenv("OPENAI_API_KEY",""),type="password")
+        model=st.text_input("OpenAI model",model)
+    limit=st.number_input("Maximum vision-verified regions/page",1,40,5)
+    st.caption("All source files and output remain on this computer unless verification is explicitly enabled.")
+uploads=st.file_uploader("Upload multiple newspaper PDFs and scanned images",accept_multiple_files=True,
+    type=["pdf","jpg","jpeg","png","tif","tiff","webp"])
+if st.button("Add files to processing queue",disabled=not uploads,type="primary"):
+    if verification=="OpenAI API" and not key:
+        st.error("Enter an OpenAI API key or disable verification.")
     else:
-        bar=st.progress(0)
-        settings=Settings(language=language,dpi=dpi,confidence_threshold=threshold,
-            verify=verify,model=model,api_key=key or None,max_verify_regions=int(limit))
-        with st.spinner("Running layout-aware OCR..."):
-            st.session_state["results"]=process_files(
-                [(f.name,f.getvalue()) for f in files],settings,
-                lambda done,total,name:bar.progress(done/total,text=f"{done}/{total}: {name}"))
-        st.success("OCR completed. Review the text and reading order before exporting.")
-
-if "results" in st.session_state:
-    results=st.session_state["results"]
-    st.subheader("Review and correct")
-    st.caption("Edits to transcription and reading order are included in exports. "
-        "Article labels are stored in JSON for later analysis; automatic article linking is not yet reliable.")
-    for doc in results:
-        with st.expander(f"{doc['filename']} — {len(doc['pages'])} pages",
-                         expanded=len(results)==1):
-            if doc.get("error"):
-                st.error(doc["error"])
-                continue
-            for page in doc["pages"]:
-                st.markdown(f"**Page {page['page']}**")
+        opts={"layout_backend":backend,"language":language,"dpi":dpi,
+              "confidence_threshold":threshold,
+              "verify":verification!="Off","model":model,
+              "api_key":key,"max_verify_regions":int(limit)}
+        successes=0
+        for f in uploads:
+            try:
+                submit(f.name,f.getvalue(),opts)
+                successes+=1
+            except Exception as exc:
+                st.error(f"{f.name}: {exc}")
+        st.success(f"Queued {successes} file(s). Start the background worker using python launch.py.")
+st.divider()
+st.subheader("Processing queue")
+if st.button("Refresh jobs"):
+    st.rerun()
+jobs=list_jobs()
+for job in jobs:
+    status=f"{job['status']} — {job['done']} pages"
+    with st.expander(f"{job['filename']} | {status}",expanded=job["status"]=="completed"):
+        st.caption(f"Job {job['id']}")
+        if job.get("error"):
+            st.error(job["error"])
+        if job["status"]=="completed":
+            try:
+                data=load_result(job["id"])
+            except Exception as exc:
+                st.error(str(exc));continue
+            for page in data["pages"]:
+                st.markdown(f"### Page {page['page']}")
                 left,right=st.columns([2,3])
                 with left:
                     if page.get("layout_preview"):
                         st.image(base64.b64decode(page["layout_preview"]),
-                            caption="Layout regions and proposed sequence")
+                                 caption="Detected blocks and proposed reading order")
                 with right:
                     for region in page["regions"]:
-                        suffix=" — REVIEW" if region["needs_review"] else ""
-                        with st.expander(f"Region {region['id']} — OCR confidence "
-                                         f"{region['ocr_confidence']:.1f}{suffix}"):
-                            region["text"]=st.text_area("Correct transcription",
-                                value=region["text"],height=150,
-                                key=f"text_{doc['slug']}_{region['id']}")
-                            region["reading_order_guess"]=st.number_input(
-                                "Reading order",min_value=1,max_value=9999,
-                                value=int(region["reading_order_guess"]),
-                                key=f"order_{doc['slug']}_{region['id']}")
-                            region["article_id"]=st.text_input("Article identifier",
-                                value=region.get("article_id") or "",
-                                key=f"article_{doc['slug']}_{region['id']}") or None
-                            verification=region.get("verification") or {}
-                            if verification.get("suggestion"):
-                                st.caption("Unreviewed AI suggestion — compare to the scan:")
-                                st.code(verification["suggestion"])
-    st.download_button("Download corrected DOCX, TXT and JSON (ZIP)",
-        export_bundle(results),file_name="newspaper_transcriptions.zip",
-        mime="application/zip",type="primary")
+                        with st.expander(f"{region['id']} | {region['type']} | confidence {region['ocr_confidence']}"):
+                            with st.form(key=f"edit_{job['id']}_{region['id']}"):
+                                text=st.text_area("Transcription",region["text"],height=150)
+                                order=st.number_input("Reading order",min_value=1,
+                                    value=int(region["reading_order_guess"]))
+                                article=st.text_input("Article ID (same ID to merge fragments)",
+                                                       region.get("article_id") or "")
+                                if st.form_submit_button("Save correction"):
+                                    try:
+                                        save_region(job["id"],page["page"],region["id"],
+                                                    text,int(order),article)
+                                        st.success("Saved to disk")
+                                    except Exception as exc:
+                                        st.error(str(exc))
+                            verification_result=region.get("verification")
+                            if verification_result:
+                                st.caption("Unreviewed vision-model suggestion")
+                                st.json(verification_result)
+            st.download_button("Download corrected documents and articles (ZIP)",
+                data=export_job(job["id"]),file_name=f"{job['id']}_transcriptions.zip",
+                mime="application/zip",key=f"download_{job['id']}")
+        if job["status"]!="running" and st.button("Delete job and stored files",key="delete_"+job["id"]):
+            delete(job["id"]);st.rerun()
+if not jobs:
+    st.info("No jobs. Upload newspaper scans using the file uploader above.")
