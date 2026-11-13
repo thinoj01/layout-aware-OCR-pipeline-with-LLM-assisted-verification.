@@ -27,7 +27,8 @@ with st.sidebar:
         model="ollama:"+st.text_input("Local Ollama model","qwen3-vl:4b")
         st.caption("Ollama must be running at 127.0.0.1:11434. Suggestions are never auto-applied.")
     elif verification=="OpenAI API":
-        key=st.text_input("API key",os.getenv("OPENAI_API_KEY",""),type="password")
+        key=os.getenv("OPENAI_API_KEY","")
+        st.caption("Set OPENAI_API_KEY in your terminal before starting the app. It is not saved to the job database.")
         model=st.text_input("OpenAI model",model)
     limit=st.number_input("Maximum vision-verified regions/page",1,40,5)
     st.caption("All source files and output remain on this computer unless verification is explicitly enabled.")
@@ -40,7 +41,7 @@ if st.button("Add files to processing queue",disabled=not uploads,type="primary"
         opts={"layout_backend":backend,"language":language,"dpi":dpi,
               "confidence_threshold":threshold,
               "verify":verification!="Off","model":model,
-              "api_key":key,"max_verify_regions":int(limit)}
+              "max_verify_regions":int(limit)}
         successes=0
         for f in uploads:
             try:
