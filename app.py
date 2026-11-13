@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import streamlit as st
 from jobs import submit, list_jobs, get_job, delete
-from review import load_result,save_region,export_job
+from review import load_result,save_region,export_job,export_completed_collection
 
 st.set_page_config(page_title="Historical Newspaper OCR Lab",layout="wide")
 st.title("Historical Newspaper OCR Lab")
@@ -100,3 +100,15 @@ for job in jobs:
             delete(job["id"]);st.rerun()
 if not jobs:
     st.info("No jobs. Upload newspaper scans using the file uploader above.")
+
+completed=[job["id"] for job in jobs if job["status"]=="completed"]
+if completed:
+    st.divider()
+    if st.button(f"Prepare collection ZIP ({len(completed)} completed newspapers)"):
+        with st.spinner("Bundling all completed newspaper exports..."):
+            st.session_state["collection_archive"]=export_completed_collection(completed)
+    if "collection_archive" in st.session_state:
+        st.download_button("Download all completed newspapers (ZIP)",
+            data=st.session_state["collection_archive"],
+            file_name="newspaper_collection.zip",
+            mime="application/zip")
