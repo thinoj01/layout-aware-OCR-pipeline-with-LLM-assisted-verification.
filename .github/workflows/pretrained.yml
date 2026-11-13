@@ -1,0 +1,41 @@
+name: Pretrained model integration
+on:
+  push:
+    paths:
+      - pretrained_layout.py
+      - requirements-ml.txt
+      - .github/workflows/pretrained.yml
+  workflow_dispatch:
+jobs:
+  pretrained:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install model and OCR dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install -r requirements-ml.txt
+      - name: Download pretrained model and test real inference
+        run: |
+          python - <<'PY'
+          from PIL import Image,ImageDraw,ImageFont
+          from pretrained_layout import detect_pretrained,load_model
+          image=Image.new("RGB",(1400,900),"white")
+          d=ImageDraw.Draw(image)
+          font=ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",36)
+          d.text((40,40),"A HISTORICAL NEWSPAPER",fill="black",font=font)
+          for x in (40,740):
+              for k in range(10):
+                  d.text((x,150+k*60),"News article text for testing",fill="black",font=font)
+          model=load_model()
+          result=detect_pretrained(image)
+          print("PRETRAINED_INFERENCE_SUCCEEDED")
+          print("Detected regions:",len(result))
+          for region in result:
+              print(region)
+          PY
