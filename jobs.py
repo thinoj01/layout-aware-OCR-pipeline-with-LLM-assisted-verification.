@@ -36,6 +36,18 @@ def submit(filename: str, content: bytes, options: dict) -> str:
     ext=Path(filename).suffix.lower()
     if ext not in {".pdf",".png",".jpg",".jpeg",".tif",".tiff",".webp"}:
         raise ValueError("Unsupported extension")
+    # Reject obviously invalid uploads before accepting them into the queue.
+    if ext==".pdf":
+        if not content.lstrip()[:8].startswith(b"%PDF-"):
+            raise ValueError("Invalid PDF signature")
+    else:
+        from io import BytesIO
+        from PIL import Image
+        try:
+            with Image.open(BytesIO(content)) as image:
+                image.verify()
+        except Exception as exc:
+            raise ValueError("Invalid or damaged image upload") from exc
     job_id=uuid.uuid4().hex
     folder=ROOT/job_id
     folder.mkdir(mode=0o700,parents=True)
