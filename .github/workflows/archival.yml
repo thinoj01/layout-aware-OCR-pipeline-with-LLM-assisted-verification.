@@ -1,0 +1,42 @@
+name: Archival newspaper smoke test
+on:
+  push:
+    paths:
+      - benchmark_newspapers.py
+      - .github/workflows/archival.yml
+  workflow_dispatch:
+jobs:
+  library-of-congress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install OCR
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr
+          python -m pip install -r requirements.txt
+      - name: Download and OCR sample archival pages
+        run: |
+          python benchmark_newspapers.py --download --limit 3 --layout xycut
+          python - <<'PY'
+          from pathlib import Path
+          paths=list(Path('benchmark/images').glob('*.jpg'))
+          print('ARCHIVAL_IMAGES_DOWNLOADED',len(paths))
+          for p in paths: print(p.name,p.stat().st_size)
+          if not paths:
+              raise SystemExit('No pages available from LOC API; benchmark not verified.')
+          audit=Path('benchmark/results/audit.csv')
+          print(audit.read_text()[:3000])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: archival-ocr-sample
+          path: |
+            benchmark/results/
+          if-no-files-found: warn
