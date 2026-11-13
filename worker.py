@@ -29,13 +29,22 @@ def process_job(job_id):
         settings.api_key=os.environ.get("OPENAI_API_KEY")
     pages=[]
     try:
+        if get_job(job_id)["cancel_requested"]:
+            change(job_id,"cancelled")
+            return
         for index,image in pages_from_bytes(record["filename"],src.read_bytes(),
                                              settings.dpi,settings.max_pages):
+            if get_job(job_id)["cancel_requested"]:
+                change(job_id,"cancelled",done=len(pages))
+                return
             page=transcribe_page(image,index,settings)
             # Write incremental progress so a failed page doesn't discard previous pages.
             pages.append(page)
             atomic_json(folder/"draft.json",{"filename":record["filename"],"pages":pages})
-            change(job_id,"running",done=index,total=max(index,record["total"]))
+            change(job_id,"running",done=index,total=record["total"])
+            if get_job(job_id)["cancel_requested"]:
+                change(job_id,"cancelled",done=len(pages))
+                return
         atomic_json(folder/"result.json",{"filename":record["filename"],"pages":pages})
         (folder/"draft.json").unlink(missing_ok=True)
         change(job_id,"completed",done=len(pages),total=len(pages))
