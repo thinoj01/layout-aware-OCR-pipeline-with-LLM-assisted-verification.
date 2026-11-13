@@ -118,3 +118,23 @@ def test_job_id_path_rejected(value):
     from jobs import job_dir
     with pytest.raises(ValueError):
         job_dir(value)
+
+def test_combined_archive_contains_corrected_jobs(tmp_path,monkeypatch):
+    import jobs
+    monkeypatch.setattr(jobs,"ROOT",tmp_path)
+    monkeypatch.setattr(jobs,"DB",tmp_path/"jobs.sqlite3")
+    from review import export_completed_collection
+    jid1=jobs.submit("a.png",_png_bytes(),{})
+    jid2=jobs.submit("b.png",_png_bytes(),{})
+    for jid,name in [(jid1,"FIRST"),(jid2,"SECOND")]:
+        (jobs.job_dir(jid)/"result.json").write_text(json.dumps({
+            "filename":name,"pages":[{"page":1,"regions":[
+                {"id":"r1","text":name,"reading_order_guess":1,"article_id":"story"}]}]
+        }))
+        jobs.change(jid,"completed")
+    with zipfile.ZipFile(io.BytesIO(export_completed_collection([jid1,jid2]))) as outer:
+        manifest=json.loads(outer.read("collection_manifest.json"))
+        assert len(manifest)==2
+        for jid,label in [(jid1,"FIRST"),(jid2,"SECOND")]:
+            with zipfile.ZipFile(io.BytesIO(outer.read(f"newspaper_{jid}/transcriptions.zip"))) as inner:
+                assert label in inner.read("transcription.txt").decode("utf8")
