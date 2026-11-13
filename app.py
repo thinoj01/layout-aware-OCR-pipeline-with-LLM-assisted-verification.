@@ -68,143 +68,147 @@ st.caption("Automatically refreshed every 5 seconds. Estimates are approximate a
            "seconds per page; the first file may show 'Calculating...' until a page finishes.")
 
 @st.fragment(run_every="5s")
-def queue_panel():
-    jobs=list_jobs()
-    estimates=queue_estimates(jobs)
-    running=[j for j in jobs if j["status"]=="running"]
-    pending=[j for j in jobs if j["status"]=="queued"]
-    completed=[j for j in jobs if j["status"]=="completed"]
+def live_queue():
+    """Refresh only the status pane; never reset unsaved article edits."""
+    records=list_jobs()
+    estimates=queue_estimates(records)
+    counts={status:sum(j["status"]==status for j in records)
+            for status in ("running","queued","completed","failed","cancelled")}
     cols=st.columns(4)
-    for col,label,count in zip(cols,["Running","Waiting","Completed","Failed/cancelled"],
-                               [len(running),len(pending),len(completed),
-                                sum(j["status"] in ("failed","cancelled") for j in jobs)]):
-        col.metric(label,count)
-
-    if st.button("Refresh now",key="refresh_queue"):
-        st.rerun(scope="fragment")
-    for job in sorted(jobs,key=lambda j:(j["created"],j["id"])):
-        status=job["status"]
+    for col,title,value in zip(cols,["Running","Waiting","Completed","Failed/cancelled"],
+                               [counts["running"],counts["queued"],counts["completed"],
+                                counts["failed"]+counts["cancelled"]]):
+        col.metric(title,value)
+    st.caption("Queue status refreshes every 5 seconds. Select Refresh completed results "
+               "below when a job finishes.")
+    active=sorted((j for j in records if j["status"] in ("running","queued")),
+                  key=lambda j:(j["status"]!="running",j["created"],j["id"]))
+    if not active:
+        st.info("No files currently waiting or processing.")
+    for job in active:
         estimate=estimates.get(job["id"])
-        if status=="running":
+        if job["status"]=="running":
             remaining=_duration(estimate["seconds_to_finish"]) if estimate else "Calculating..."
-            label=f"Processing: {job['filename']} — {job['done']}/{job['total']} pages — ETA {remaining}"
-        elif status=="queued":
-            position=estimate["position"] if estimate else "?"
-            waiting=_duration(estimate["seconds_to_start"]) if estimate else "Calculating..."
-            label=f"Waiting #{position}: {job['filename']} — {job['total']} pages — Starts in {waiting}"
+            st.markdown(f"**Processing: {job['filename']}**")
+            st.progress(min(1.0,job["done"]/max(1,job["total"])),
+                        text=f"{job['done']}/{job['total']} pages — estimated remaining {remaining}")
+            if job.get("cancel_requested"):
+                st.caption("Cancellation requested; finishes current page before stopping.")
+            elif st.button("Cancel running newspaper",key="cancel_"+job["id"]):
+                request_cancel(job["id"])
+                st.rerun(scope="fragment")
         else:
-            label=f"{status.title()}: {job['filename']} — {job['done']}/{job['total']} pages"
-
-        with st.expander(label,expanded=status=="running"):
-            st.caption(f"Job ID: {job['id']}")
-            if status=="running":
-                st.progress(min(1.0,job["done"]/max(1,job["total"])),
-                            text=f"{job['done']} of {job['total']} pages completed")
-                if job.get("cancel_requested"):
-                    st.info("Cancellation requested. This file stops after the current page.")
-                elif st.button("Cancel this running newspaper",key="cancel_"+job["id"]):
-                    request_cancel(job["id"])
-                    st.rerun(scope="fragment")
-            elif status=="queued":
-                st.progress(0,text=f"Queue position {estimate['position']} of {len(pending)}")
-                st.caption("Estimated waiting time: "+
-                           (_duration(estimate["seconds_to_start"]) if estimate else "Calculating..."))
-                if st.button("Remove from queue",key="remove_"+job["id"]):
+            position=estimate["position"] if estimate else "?"
+            wait=_duration(estimate["seconds_to_start"]) if estimate else "Calculating..."
+            x,y=st.columns([4,1])
+            x.write(f"**Waiting #{position}: {job['filename']}** — {job['total']} pages — "
+                    f"estimated start in {wait}")
+            if y.button("Remove",key="remove_"+job["id"]):
+                try:
                     delete(job["id"])
                     invalidate_archive()
                     st.rerun(scope="fragment")
-            else:
-                if job.get("error"):
-                    st.error(job["error"])
-                if status=="completed":
-                    try:
-                        data=load_result(job["id"])
-                    except Exception as exc:
-                        st.error(str(exc))
-                        data=None
-                    if data:
-                        for page in data["pages"]:
-                            st.markdown(f"**Page {page['page']}**")
-                            left,right=st.columns([2,3])
-                            with left:
-                                if page.get("layout_preview"):
-                                    st.image(base64.b64decode(page["layout_preview"]),
-                                             caption="Detected regions and provisional order")
-                            with right:
-                                for region in page["regions"]:
-                                    with st.expander(
-                                        f"{region['id']} | {region['type']} | confidence {region['ocr_confidence']}"
-                                    ):
-                                        with st.form(key=f"edit_{job['id']}_{region['id']}"):
-                                            candidate=st.text_area("Transcription",
-                                                region["text"],height=140)
-                                            order=st.number_input("Reading order",min_value=1,
-                                                value=int(region["reading_order_guess"]))
-                                            article=st.text_input("Article ID",
-                                                region.get("article_id") or "")
-                                            if st.form_submit_button("Save correction"):
-                                                try:
-                                                    save_region(job["id"],page["page"],
-                                                        region["id"],candidate,int(order),article)
-                                                    invalidate_archive()
-                                                    st.success("Saved to disk")
-                                                except Exception as exc:
-                                                    st.error(str(exc))
-                                        if region.get("verification"):
-                                            st.caption("Unreviewed vision-model suggestion")
-                                            st.json(region["verification"])
-                        st.download_button("Download newspaper ZIP",
-                            data=export_job(job["id"]),
-                            file_name=f"{job['id']}_transcriptions.zip",
-                            mime="application/zip",key="download_"+job["id"],
-                            on_click=mark_download)
-                if st.button("Delete newspaper and its saved files",key="delete_"+job["id"]):
-                    delete(job["id"])
-                    invalidate_archive()
-                    st.rerun(scope="fragment")
+                except ValueError:
+                    st.warning("The worker already started this job; use Cancel instead.")
 
-    if completed:
-        st.divider()
-        current_ids=tuple(j["id"] for j in completed)
-        if st.session_state.get("collection_ids")!=current_ids:
-            invalidate_archive()
-        if st.button(f"Prepare collection ZIP ({len(completed)} completed newspapers)",
-                     key="prepare_collection"):
-            with st.spinner("Building ZIP..."):
-                st.session_state["collection_archive"]=export_completed_collection(current_ids)
-                st.session_state["collection_ids"]=current_ids
-        if "collection_archive" in st.session_state:
-            st.download_button("Download all completed newspapers (ZIP)",
-                data=st.session_state["collection_archive"],
-                file_name="newspaper_collection.zip",mime="application/zip",
-                on_click=mark_download,key="download_collection")
-
-    if st.session_state.get("reset_prompt"):
-        st.divider()
-        st.info("ZIP download initiated. Do you want to restart with an empty queue? "
-                "Confirm that the ZIP is saved before clearing. No files are deleted automatically.")
-        if running:
-            st.warning("A newspaper is processing. Cancel it and wait for cancellation "
-                       "before clearing this batch.")
-        first,second=st.columns(2)
-        if first.button("Keep results and continue",key="keep_all"):
-            st.session_state["reset_prompt"]=False
-            st.rerun(scope="fragment")
-        if second.button("Clear all jobs and start a new batch",key="reset_all",
-                         disabled=bool(running)):
+live_queue()
+st.divider()
+st.subheader("Completed newspapers and review")
+if st.button("Refresh completed results",key="refresh_results"):
+    st.rerun()
+jobs=list_jobs()
+completed=[job for job in jobs if job["status"]=="completed"]
+finished=[job for job in jobs if job["status"] in ("completed","failed","cancelled")]
+for job in sorted(finished,key=lambda x:(-x["created"],x["id"])):
+    with st.expander(f"{job['status'].title()}: {job['filename']}",
+                     expanded=False):
+        if job.get("error"):
+            st.error(job["error"])
+        if job["status"]=="completed":
             try:
-                delete_many([j["id"] for j in jobs])
-                invalidate_archive()
-                st.session_state["reset_prompt"]=False
-                st.session_state["upload_nonce"]+=1
-                st.rerun()
+                data=load_result(job["id"])
             except Exception as exc:
+                st.error(f"Cannot read saved transcription: {exc}")
+                data=None
+            if data:
+                for page in data["pages"]:
+                    st.markdown(f"**Page {page['page']}**")
+                    left,right=st.columns([2,3])
+                    with left:
+                        if page.get("layout_preview"):
+                            st.image(base64.b64decode(page["layout_preview"]),
+                                caption="Detected regions and proposed order")
+                    with right:
+                        for region in page["regions"]:
+                            with st.expander(
+                                f"{region['id']} | {region['type']} | confidence {region['ocr_confidence']}"
+                            ):
+                                with st.form(key=f"edit_{job['id']}_{region['id']}"):
+                                    candidate=st.text_area("Transcription",
+                                        value=region["text"],height=140)
+                                    order=st.number_input("Reading order",min_value=1,
+                                        value=int(region["reading_order_guess"]))
+                                    article=st.text_input("Article ID",value=region.get("article_id") or "")
+                                    if st.form_submit_button("Save correction"):
+                                        try:
+                                            save_region(job["id"],page["page"],
+                                                region["id"],candidate,int(order),article)
+                                            invalidate_archive()
+                                            st.success("Saved to disk")
+                                        except Exception as exc:
+                                            st.error(str(exc))
+                                if region.get("verification"):
+                                    st.caption("Unreviewed vision-model suggestion")
+                                    st.json(region["verification"])
+                st.download_button("Download newspaper ZIP",
+                    data=export_job(job["id"]),
+                    file_name=f"{job['id']}_transcriptions.zip",
+                    mime="application/zip",key="download_"+job["id"],
+                    on_click=mark_download)
+        if st.button("Delete this newspaper and stored files",key="delete_"+job["id"]):
+            try:
+                delete(job["id"])
+                invalidate_archive()
+                st.rerun()
+            except ValueError as exc:
                 st.error(str(exc))
-    elif jobs:
-        if st.button("Start a new batch / clear queue",key="prompt_manual_reset"):
-            st.session_state["reset_prompt"]=True
-            st.rerun(scope="fragment")
-    else:
-        st.info("No newspapers in the queue. Add PDFs or image scans above.")
 
-queue_panel()
+if completed:
+    st.divider()
+    ids=tuple(j["id"] for j in completed)
+    if st.session_state.get("collection_ids")!=ids:
+        invalidate_archive()
+    if st.button(f"Prepare collection ZIP ({len(completed)} completed newspapers)"):
+        with st.spinner("Building archive..."):
+            st.session_state["collection_archive"]=export_completed_collection(ids)
+            st.session_state["collection_ids"]=ids
+    if "collection_archive" in st.session_state:
+        st.download_button("Download all completed newspapers (ZIP)",
+            data=st.session_state["collection_archive"],
+            file_name="newspaper_collection.zip",
+            mime="application/zip",on_click=mark_download,key="download_collection")
+
+st.divider()
+if not st.session_state.get("reset_prompt"):
+    if jobs and st.button("Start a new batch / clear queue"):
+        st.session_state["reset_prompt"]=True
+        st.rerun()
+else:
+    st.info("ZIP download started or reset requested. Did you save your ZIP? "
+            "To start over, confirm below. Results are never deleted just by downloading.")
+    if any(j["status"]=="running" for j in list_jobs()):
+        st.warning("Cancel the running newspaper first and wait until it stops.")
+    a,b=st.columns(2)
+    if a.button("Keep results",key="keep_results"):
+        st.session_state["reset_prompt"]=False
+        st.rerun()
+    if b.button("Clear all jobs and start a new batch",key="confirm_reset",
+                disabled=any(j["status"]=="running" for j in list_jobs())):
+        try:
+            delete_many([job["id"] for job in list_jobs()])
+            invalidate_archive()
+            st.session_state["reset_prompt"]=False
+            st.session_state["upload_nonce"]+=1
+            st.rerun()
+        except ValueError as exc:
+            st.error(str(exc))
