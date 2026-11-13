@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse
 import json
+import os
 import time
 from pathlib import Path
 from jobs import get_job, claim, change, job_dir, restart_interrupted
@@ -24,6 +25,8 @@ def process_job(job_id):
     src=inputs[0]
     opts=json.loads(record["options"])
     settings=Settings(**opts)
+    if settings.verify and not settings.model.startswith("ollama:"):
+        settings.api_key=os.environ.get("OPENAI_API_KEY")
     pages=[]
     try:
         for index,image in pages_from_bytes(record["filename"],src.read_bytes(),
