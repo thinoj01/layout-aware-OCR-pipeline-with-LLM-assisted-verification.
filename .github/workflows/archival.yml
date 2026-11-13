@@ -1,9 +1,5 @@
 name: Archival newspaper smoke test
 on:
-  push:
-    paths:
-      - benchmark_newspapers.py
-      - .github/workflows/archival.yml
   workflow_dispatch:
 jobs:
   library-of-congress:
