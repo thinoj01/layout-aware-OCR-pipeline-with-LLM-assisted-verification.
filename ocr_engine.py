@@ -14,6 +14,7 @@ import numpy as np
 import pytesseract
 from PIL import Image
 from pytesseract import Output
+from layout import detect_regions, overlay
 
 SUPPORTED = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"}
 
@@ -27,6 +28,7 @@ class Settings:
     max_verify_regions: int = 12
     api_key: str | None = None
     max_pages: int = 500
+    use_layout: bool = True
 
 def sanitize(name):
     return (re.sub(r"[^a-zA-Z0-9._-]+", "_", Path(name).stem).strip("._") or "newspaper")[:85]
@@ -131,32 +133,62 @@ def verify_region(image, text, settings):
             "status":"proposed_unreviewed"}
 
 def transcribe_page(img, page_no, settings):
-    lines = recognize_lines(prepare(img),settings.language)
-    groups = group_columns(lines,img.width)
-    regions = []
-    for i, group in enumerate(groups,1):
-        bbox = [min(x["bbox"][0] for x in group),min(x["bbox"][1] for x in group),
-                max(x["bbox"][2] for x in group),max(x["bbox"][3] for x in group)]
-        confidence = round(float(np.mean([x["confidence"] for x in group])),1)
-        regions.append({"id":f"p{page_no}_r{i}","type":"column_candidate",
-                        "reading_order_guess":i,"bbox":bbox,
-                        "text":"\n".join(x["text"] for x in group),
-                        "ocr_confidence":confidence,
-                        "needs_review":confidence < settings.confidence_threshold,
-                        "lines":group,"verification":None})
+    """Layout-first independent region OCR; no reading across column gutters."""
+    prepared=prepare(img)
+    blocks=detect_regions(prepared) if settings.use_layout else []
+    if not blocks:
+        from layout import Block
+        blocks=[Block([0,0,img.width,img.height],1,source="fallback")]
+    regions=[]
+    for i,block in enumerate(blocks,1):
+        x0,y0,x1,y1=block.bbox
+        pad=6
+        crop=prepared.crop((max(0,x0-pad),max(0,y0-pad),
+                            min(img.width,x1+pad),min(img.height,y1+pad)))
+        data=pytesseract.image_to_data(crop,lang=settings.language,
+                config="--oem 1 --psm 6",output_type=Output.DICT)
+        lines={}
+        scores=[]
+        for j,raw in enumerate(data["text"]):
+            word=raw.strip()
+            if not word:
+                continue
+            conf=float(data["conf"][j])
+            if conf>=0:
+                scores.append(conf)
+            key=(data["block_num"][j],data["par_num"][j],data["line_num"][j])
+            lines.setdefault(key,[]).append(word)
+        content="\n".join(" ".join(words) for words in lines.values())
+        if not content.strip():
+            continue
+        confidence=round(float(np.mean(scores)),2) if scores else 0.0
+        regions.append({"id":f"p{page_no}_r{i}","type":block.kind,
+            "reading_order_guess":len(regions)+1,"article_id":None,
+            "bbox":block.bbox,"text":content,
+            "ocr_confidence":confidence,
+            "needs_review":confidence<settings.confidence_threshold,
+            "verification":None,"source":block.source})
     if settings.verify:
         if not settings.api_key:
             raise ValueError("An API key is required for optional verification")
         for region in sorted(regions,key=lambda r:r["ocr_confidence"])[:settings.max_verify_regions]:
             x1,y1,x2,y2=region["bbox"]
-            crop=img.crop((max(0,x1-12),max(0,y1-12),min(img.width,x2+12),min(img.height,y2+12)))
+            crop=img.crop((max(0,x1-12),max(0,y1-12),
+                           min(img.width,x2+12),min(img.height,y2+12)))
             try:
                 region["verification"]=verify_region(crop,region["text"],settings)
             except Exception as exc:
                 region["verification"]={"status":"failed","error":str(exc)[:250]}
+    import base64
+    viz=overlay(img,regions)
+    if viz.width>1500:
+        viz=viz.resize((1500,round(1500*viz.height/viz.width)),Image.Resampling.LANCZOS)
+    thumb=io.BytesIO()
+    viz.save(thumb,format="JPEG",quality=72)
     return {"page":page_no,"size":list(img.size),"regions":regions,
-            "text":"\n\n".join(r["text"] for r in regions),
-            "warning":"Column grouping and reading order are estimates. Verify manually."}
+        "layout_preview":base64.b64encode(thumb.getvalue()).decode("ascii"),
+        "text":"\n\n".join(r["text"] for r in regions),
+        "warning":"XY-cut order is provisional; article grouping and side notes need human review."}
 
 def process_files(files,settings,progress=None):
     results=[]
@@ -178,6 +210,7 @@ def process_files(files,settings,progress=None):
     return results
 
 def export_bundle(results):
+    """Export corrected region text and manual reading order."""
     from docx import Document
     buffer=io.BytesIO()
     manifest=[]
@@ -187,19 +220,24 @@ def export_bundle(results):
                 manifest.append({"source":item["filename"],"error":item["error"]})
                 continue
             stem=item["slug"]
-            body="\n\n".join(f"=== PAGE {p['page']} ===\n{p['text']}" for p in item["pages"])
-            archive.writestr(f"{stem}/transcription.txt",body)
-            archive.writestr(f"{stem}/structured.json",json.dumps({
-                "source_filename":item["filename"],"pages":item["pages"]},ensure_ascii=False,indent=2))
             doc=Document()
             doc.add_heading(item["filename"],0)
+            parts=[]
             for page in item["pages"]:
                 doc.add_heading(f"Page {page['page']}",level=1)
-                for region in page["regions"]:
+                parts.append(f"=== PAGE {page['page']} ===")
+                for region in sorted(page["regions"],key=lambda r:r["reading_order_guess"]):
+                    parts.append(region["text"])
                     doc.add_paragraph(region["text"])
-            mem=io.BytesIO()
-            doc.save(mem)
-            archive.writestr(f"{stem}/transcription.docx",mem.getvalue())
+            archive.writestr(f"{stem}/transcription.txt","\n\n".join(parts))
+            clean_pages=[{k:v for k,v in page.items() if k!="layout_preview"}
+                         for page in item["pages"]]
+            archive.writestr(f"{stem}/structured.json",json.dumps({
+                "source_filename":item["filename"],"pages":clean_pages},
+                ensure_ascii=False,indent=2))
+            docio=io.BytesIO()
+            doc.save(docio)
+            archive.writestr(f"{stem}/transcription.docx",docio.getvalue())
             manifest.append({"source":item["filename"],"pages":len(item["pages"])})
         archive.writestr("manifest.json",json.dumps(manifest,indent=2))
     return buffer.getvalue()
