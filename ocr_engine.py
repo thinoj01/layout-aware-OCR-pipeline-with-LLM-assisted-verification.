@@ -142,7 +142,7 @@ def transcribe_page(img, page_no, settings):
         if not predicted:
             raise RuntimeError("Pretrained model detected no usable blocks; review source image.")
         from layout import Block
-        from coverage import recover_unassigned
+        from text_recovery import recover_unassigned
         text_boxes = [r for r in predicted if r["type"]!="figure"]
         covered = [r["bbox"] for r in predicted]
         recovered = recover_unassigned(img,covered)
