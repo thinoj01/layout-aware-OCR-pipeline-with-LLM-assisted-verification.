@@ -29,6 +29,7 @@ class Settings:
     api_key: str | None = None
     max_pages: int = 500
     use_layout: bool = True
+    layout_backend: str = "xycut"
 
 def sanitize(name):
     return (re.sub(r"[^a-zA-Z0-9._-]+", "_", Path(name).stem).strip("._") or "newspaper")[:85]
@@ -135,7 +136,18 @@ def verify_region(image, text, settings):
 def transcribe_page(img, page_no, settings):
     """Layout-first independent region OCR; no reading across column gutters."""
     prepared=prepare(img)
-    blocks=detect_regions(prepared) if settings.use_layout else []
+    if settings.layout_backend == "pretrained":
+        from pretrained_layout import detect_pretrained
+        predicted = detect_pretrained(img)
+        if not predicted:
+            raise RuntimeError("Pretrained model detected no usable text blocks; review source image.")
+        from layout import Block
+        blocks = [Block(r["bbox"],i+1,kind=r["type"],source=r["source"])
+                  for i,r in enumerate(predicted)]
+    elif settings.layout_backend == "xycut":
+        blocks = detect_regions(prepared) if settings.use_layout else []
+    else:
+        raise ValueError("Unknown layout backend: "+settings.layout_backend)
     if not blocks:
         from layout import Block
         blocks=[Block([0,0,img.width,img.height],1,source="fallback")]
@@ -169,14 +181,19 @@ def transcribe_page(img, page_no, settings):
             "needs_review":confidence<settings.confidence_threshold,
             "verification":None,"source":block.source})
     if settings.verify:
-        if not settings.api_key:
-            raise ValueError("An API key is required for optional verification")
+        if not settings.model.startswith("ollama:") and not settings.api_key:
+            raise ValueError("An API key is required for OpenAI verification")
         for region in sorted(regions,key=lambda r:r["ocr_confidence"])[:settings.max_verify_regions]:
             x1,y1,x2,y2=region["bbox"]
             crop=img.crop((max(0,x1-12),max(0,y1-12),
                            min(img.width,x2+12),min(img.height,y2+12)))
             try:
-                region["verification"]=verify_region(crop,region["text"],settings)
+                if settings.model.startswith("ollama:"):
+                    from ollama_verify import verify_ollama
+                    region["verification"]=verify_ollama(crop,region["text"],
+                                                       settings.model.split(":",1)[1])
+                else:
+                    region["verification"]=verify_region(crop,region["text"],settings)
             except Exception as exc:
                 region["verification"]={"status":"failed","error":str(exc)[:250]}
     import base64
