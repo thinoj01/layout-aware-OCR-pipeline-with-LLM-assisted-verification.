@@ -138,12 +138,16 @@ def transcribe_page(img, page_no, settings):
     prepared=prepare(img)
     if settings.layout_backend == "pretrained":
         from pretrained_layout import detect_pretrained
-        predicted = detect_pretrained(img)
+        predicted = detect_pretrained(img,include_figures=True)
         if not predicted:
-            raise RuntimeError("Pretrained model detected no usable text blocks; review source image.")
+            raise RuntimeError("Pretrained model detected no usable blocks; review source image.")
         from layout import Block
+        from coverage import recover_unassigned
+        text_boxes = [r for r in predicted if r["type"]!="figure"]
+        covered = [r["bbox"] for r in predicted]
+        recovered = recover_unassigned(img,covered)
         blocks = [Block(r["bbox"],i+1,kind=r["type"],source=r["source"])
-                  for i,r in enumerate(predicted)]
+                  for i,r in enumerate(text_boxes+recovered)]
     elif settings.layout_backend == "xycut":
         blocks = detect_regions(prepared) if settings.use_layout else []
     else:
@@ -178,7 +182,7 @@ def transcribe_page(img, page_no, settings):
             "reading_order_guess":len(regions)+1,"article_id":None,
             "bbox":block.bbox,"text":content,
             "ocr_confidence":confidence,
-            "needs_review":confidence<settings.confidence_threshold,
+            "needs_review":confidence<settings.confidence_threshold or block.source=="sparse-ocr-recovery",
             "verification":None,"source":block.source})
     if settings.verify:
         if not settings.model.startswith("ollama:") and not settings.api_key:
