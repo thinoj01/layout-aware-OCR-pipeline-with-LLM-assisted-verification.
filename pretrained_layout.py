@@ -34,7 +34,7 @@ def load_model():
             "for the first download, or choose the explicit XY-cut fallback."
         ) from exc
 
-def detect_pretrained(image: Image.Image, min_confidence: float = 0.20):
+def detect_pretrained(image: Image.Image, min_confidence: float = 0.20, include_figures=False):
     model = load_model()
     try:
         results = model.predict(source=np.asarray(image.convert("RGB")),
@@ -48,7 +48,9 @@ def detect_pretrained(image: Image.Image, min_confidence: float = 0.20):
         names = result.names
         for row in result.boxes:
             label = str(names[int(row.cls[0])]).lower().replace(" ", "_")
-            if label in SKIP_CLASSES or label not in TEXT_CLASSES:
+            if label in SKIP_CLASSES:
+                continue
+            if label not in TEXT_CLASSES and not (include_figures and label=="figure"):
                 continue
             x1, y1, x2, y2 = [round(float(x)) for x in row.xyxy[0].tolist()]
             x1, x2 = max(0,x1), min(width,x2)
