@@ -109,15 +109,11 @@ def claim():
     return None
 
 def delete(job_id):
+    """Delete a nonrunning job atomically with respect to worker claims."""
     row=get_job(job_id)
     if not row:
         return False
-    # Jobs must not be deleted while processing: worker could recreate files.
-    if row["status"]=="running":
-        raise ValueError("Cannot delete a running job")
-    with connect() as db:
-        db.execute("DELETE FROM jobs WHERE id=?",(job_id,))
-    shutil.rmtree(ROOT/job_id,ignore_errors=True)
+    delete_many([job_id])
     return True
 
 def restart_interrupted():
