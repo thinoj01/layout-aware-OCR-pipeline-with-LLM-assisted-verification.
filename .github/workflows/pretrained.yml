@@ -38,4 +38,12 @@ jobs:
           print("Detected regions:",len(result))
           for region in result:
               print(region)
+          from ocr_engine import Settings, transcribe_page
+          page=transcribe_page(image,1,Settings(layout_backend="pretrained",verify=False))
+          print("END_TO_END_PRETRAINED_PAGE_SUCCEEDED")
+          print("OCR region count:",len(page["regions"]))
+          print("Unassigned text:",sum(r["source"]=="sparse-ocr-recovery" for r in page["regions"]))
+          print("Transcription first 500 chars:",page["text"][:500])
+          assert len(page["regions"])>=2
+          assert "News article" in page["text"]
           PY
