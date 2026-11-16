@@ -28,6 +28,23 @@ Open **http://127.0.0.1:8501**. The app runs only on your computer. `launch.py` 
 
 For French scans, install Tesseract French trained data and select `fra` or `eng+fra`. Ubuntu can install Tesseract via `apt install tesseract-ocr`.
 
+## Research analysis workspace (new)
+
+Choose **Research analysis** from the sidebar to work with previously completed newspaper OCR jobs, including any saved manual corrections. The application also accepts a UTF-8 `.txt` transcript directly. This workspace:
+
+- Retrieves passages from the selected newspapers with locally computed **BM25 lexical search**. Each hit includes its original filename, page, region ID, article label and review status. Search is not yet an embedding-based semantic search.
+- Lets you ask natural-language questions and request a **source-grounded answer** from Ollama (local) or the OpenAI API (optional external cloud); the answer is instructed to cite evidence as `[S1]`, `[S2]`, etc. Expand each evidence passage to inspect the exact saved text. The application explicitly warns when the answer has no valid citations. LLM citations are not proof of correctness: researchers should still inspect the underlying source image.
+- Shows repeated terms across OCR passages (passage frequency, **not** article prevalence). An optional theme-analysis button asks the model to describe recurring themes using selected evidence. This is exploratory; it is not a validated qualitative coding system.
+- Exports the answer or theme analysis **together with its supporting passages as JSON**, preserving provenance.
+
+**Recommended architecture:** Use retrieval over the corrected corpus with an existing model, called via a local Ollama API (no paid service) or your own application backend that calls a hosted API. Do not train a new language model for the initial version. A later stage can add embedding search, researcher-approved codebooks, categorical annotation, historical date/entity metadata, inter-annotator agreement, and topic trends.
+
+## Ollama verification progress and troubleshooting
+
+When OCR processing uses Ollama, the queue now displays stages including *Checking Ollama model*, *Downloading Ollama model (XX%)*, *OCR region N/M*, and *verifying region N/M*. If the model is already cached it should move directly to the OCR stage. Verifying a large newspaper crop can still be slow; the current local verification request times out after 90 seconds and saves a failed suggestion rather than freezing the entire job. Failed suggestions do not automatically replace OCR text. A model download that stops responding produces a visible error.
+
+After a job completes, use **Refresh completed results** and inspect *Unreviewed vision-model suggestion* inside the region expander. If that section is absent, check that the Ollama checkbox was enabled **before the job was submitted**. Selecting it does not retroactively verify older OCR jobs.
+
 ## How professors would use it
 
 1. Upload several PDF or image newspapers.
