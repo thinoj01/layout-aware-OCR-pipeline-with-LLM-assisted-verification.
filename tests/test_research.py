@@ -84,3 +84,33 @@ def test_ollama_progress_when_server_already_running(monkeypatch):
     messages=[]
     assert rt.ensure_ollama("qwen3-vl:4b",progress=messages.append)
     assert "ready" in messages[-1]
+
+
+def test_research_workspace_render_without_completed_jobs(tmp_path,monkeypatch):
+    import jobs
+    from pathlib import Path
+    from streamlit.testing.v1 import AppTest
+    monkeypatch.setattr(jobs,"ROOT",tmp_path)
+    monkeypatch.setattr(jobs,"DB",tmp_path/"jobs.sqlite3")
+    app=AppTest.from_file(str(Path(__file__).resolve().parents[1]/"app.py"),
+                          default_timeout=30).run()
+    assert not app.exception
+    app.radio[0].set_value("Research analysis").run()
+    assert not app.exception
+
+
+def test_stage_updates_are_persisted_when_worker_running(tmp_path,monkeypatch):
+    import jobs
+    from PIL import Image
+    import io
+    monkeypatch.setattr(jobs,"ROOT",tmp_path)
+    monkeypatch.setattr(jobs,"DB",tmp_path/"jobs.sqlite3")
+    b=io.BytesIO()
+    Image.new("RGB",(30,30),"white").save(b,"PNG")
+    jid=jobs.submit("testing.png",b.getvalue(),{})
+    assert jobs.claim()==jid
+    jobs.set_stage(jid,"Ollama downloading model (50%)")
+    assert jobs.get_job(jid)["stage"]=="Ollama downloading model (50%)"
+    jobs.change(jid,"completed",done=1,total=1)
+    jobs.set_stage(jid,"incorrect change")
+    assert jobs.get_job(jid)["stage"]=="Ollama downloading model (50%)"
