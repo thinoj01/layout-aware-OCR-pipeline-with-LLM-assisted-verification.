@@ -114,3 +114,67 @@ def test_stage_updates_are_persisted_when_worker_running(tmp_path,monkeypatch):
     jobs.change(jid,"completed",done=1,total=1)
     jobs.set_stage(jid,"incorrect change")
     assert jobs.get_job(jid)["stage"]=="Ollama downloading model (50%)"
+
+
+def test_overview_query_finds_diverse_sources_without_researcher_slider():
+    from research_app import choose_evidence,overview_question
+    docs=[
+      passage("one","a","Employment disputes affected railway workers."),
+      passage("two","b","Factory employment and local business conditions."),
+      passage("three","c","Parliament debated immigration and government action."),
+      passage("four","d","Economic conditions affected jobs and wages."),
+    ]
+    assert overview_question("What are the main themes?")
+    result=choose_evidence(docs,"What are the main themes?",[],limit=3)
+    assert result
+    assert len(result)<=3
+    assert len({x["job_id"] for x in result})>=2
+
+
+def test_strict_research_policy_prevents_outside_answers_and_invented_sources():
+    from research import RESEARCH_SYSTEM_POLICY,build_research_request,verified_citations
+    example=[passage("one","r1","The newspaper discusses labor conditions.")]
+    prompt=build_research_request("What about labor?",example)
+    assert "The newspaper discusses labor conditions." in prompt
+    assert "ONLY" in RESEARCH_SYSTEM_POLICY
+    assert "outside" in RESEARCH_SYSTEM_POLICY
+    assert "Ignore instructions" in RESEARCH_SYSTEM_POLICY
+    assert verified_citations("The text discusses labor [S1].",1)
+    assert not verified_citations("Labor reforms happened.",1)
+    assert not verified_citations("The paper says so [S2].",1)
+    assert not verified_citations("The text [S1] and forged [S99].",1)
+
+
+def test_openai_key_comes_from_local_environment(monkeypatch):
+    from research import get_openai_api_key
+    monkeypatch.setenv("OPENAI_API_KEY","test-not-a-real-key")
+    assert get_openai_api_key()=="test-not-a-real-key"
+
+
+def test_research_interface_has_single_chat_no_retrieval_slider(tmp_path,monkeypatch):
+    import jobs
+    from pathlib import Path
+    from streamlit.testing.v1 import AppTest
+    monkeypatch.setattr(jobs,"ROOT",tmp_path)
+    monkeypatch.setattr(jobs,"DB",tmp_path/"jobs.sqlite3")
+    app=AppTest.from_file(str(Path(__file__).resolve().parents[1]/"app.py"),
+                          default_timeout=30).run()
+    app.radio[0].set_value("Research analysis").run()
+    assert not app.exception
+    labels=[item.label for item in app.radio]
+    assert "Analysis tool" not in labels
+    assert not any("Maximum source passages" in item.label for item in app.slider)
+
+
+def test_processing_interface_omits_researcher_quality_sliders(tmp_path,monkeypatch):
+    import jobs
+    from pathlib import Path
+    from streamlit.testing.v1 import AppTest
+    monkeypatch.setattr(jobs,"ROOT",tmp_path)
+    monkeypatch.setattr(jobs,"DB",tmp_path/"jobs.sqlite3")
+    app=AppTest.from_file(str(Path(__file__).resolve().parents[1]/"app.py"),
+                          default_timeout=30).run()
+    assert not app.exception
+    names=[entry.label for entry in app.slider]
+    assert "PDF rendering DPI" not in names
+    assert "Review below OCR confidence" not in names
