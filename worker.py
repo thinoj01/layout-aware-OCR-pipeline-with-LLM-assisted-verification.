@@ -6,7 +6,7 @@ import os
 import signal
 import time
 from pathlib import Path
-from jobs import get_job, claim, change, job_dir, restart_interrupted
+from jobs import get_job, claim, change, set_stage, job_dir, restart_interrupted
 from ocr_engine import Settings, pages_from_bytes, transcribe_page
 
 def atomic_json(path: Path, data):
@@ -27,10 +27,11 @@ def process_job(job_id):
     opts=json.loads(record["options"])
     settings=Settings(**opts)
     pages=[]
+    report=lambda message:set_stage(job_id,message)
     try:
         if settings.verify and settings.model.startswith("ollama:"):
             from ollama_runtime import ensure_ollama
-            ensure_ollama(settings.model.split(":",1)[1])
+            ensure_ollama(settings.model.split(":",1)[1],progress=report)
         elif settings.verify:
             settings.api_key=os.environ.get("OPENAI_API_KEY")
         if get_job(job_id)["cancel_requested"]:
@@ -41,17 +42,20 @@ def process_job(job_id):
             if get_job(job_id)["cancel_requested"]:
                 change(job_id,"cancelled",done=len(pages))
                 return
-            page=transcribe_page(image,index,settings)
+            report(f"Page {index}/{record['total']}: starting OCR")
+            page=transcribe_page(image,index,settings,progress=report)
             # Write incremental progress so a failed page doesn't discard previous pages.
             pages.append(page)
             atomic_json(folder/"draft.json",{"filename":record["filename"],"pages":pages})
             change(job_id,"running",done=index,total=record["total"])
+            report(f"Completed page {index}/{record['total']}")
             if get_job(job_id)["cancel_requested"]:
                 change(job_id,"cancelled",done=len(pages))
                 return
         atomic_json(folder/"result.json",{"filename":record["filename"],"pages":pages})
         (folder/"draft.json").unlink(missing_ok=True)
         change(job_id,"completed",done=len(pages),total=len(pages))
+        # Complete job status is visible even when a user has not refreshed editor.
     except Exception as exc:
         change(job_id,"failed",done=len(pages),error=f"{type(exc).__name__}: {exc}")
         raise
