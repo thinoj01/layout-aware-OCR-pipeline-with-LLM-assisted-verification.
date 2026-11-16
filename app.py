@@ -7,6 +7,13 @@ from jobs import (submit,list_jobs,delete,delete_many,delete_finished,request_ca
 from review import (load_result,save_region,export_job,export_completed_collection)
 
 st.set_page_config(page_title="Historical Newspaper OCR Lab",layout="wide")
+workspace=st.sidebar.radio("Workspace",["OCR processing","Research analysis"],
+                           key="workspace_selector")
+if workspace=="Research analysis":
+    from research_app import show
+    show()
+    st.stop()
+
 st.title("Historical Newspaper OCR Lab")
 st.caption("Local research prototype: batch OCR, live queue, saved corrections and exports.")
 st.warning("OCR regions and reading order still require human verification. Run locally only.")
