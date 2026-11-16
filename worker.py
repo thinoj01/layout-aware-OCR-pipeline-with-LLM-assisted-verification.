@@ -25,7 +25,10 @@ def process_job(job_id):
     src=inputs[0]
     opts=json.loads(record["options"])
     settings=Settings(**opts)
-    if settings.verify and not settings.model.startswith("ollama:"):
+    if settings.verify and settings.model.startswith("ollama:"):
+        from ollama_runtime import ensure_ollama
+        ensure_ollama(settings.model.split(":",1)[1])
+    elif settings.verify:
         settings.api_key=os.environ.get("OPENAI_API_KEY")
     pages=[]
     try:
@@ -70,4 +73,8 @@ if __name__=="__main__":
     parser=argparse.ArgumentParser()
     parser.add_argument("--once",action="store_true")
     args=parser.parse_args()
-    run(once=args.once)
+    try:
+        run(once=args.once)
+    finally:
+        from ollama_runtime import stop_managed_ollama
+        stop_managed_ollama()
