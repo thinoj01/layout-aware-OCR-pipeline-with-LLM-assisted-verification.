@@ -39,8 +39,8 @@ For French scans, install Tesseract French trained data and select `fra` or `eng
    - Queue status refreshes independently of the editing forms so unsaved corrections are not wiped while typing.
 5. Check the numbers on the annotated newspaper: wide top headlines and masthead are read first, followed by each inferred newspaper column from top to bottom and left to right. A wide section header spanning multiple columns is marked uncertain. This is not automated article reconstruction. Review text and proposed reading order region by region; **Save correction** persists changes to disk.
 6. Give fragments from one newspaper story the same **Article ID** to combine them in the article export.
-7. Choose **Prepare collection ZIP** to download all completed newspapers in one archive, or download an individual job ZIP. After clicking a download, the UI asks whether to keep the results or clear the local batch and begin again. **Nothing is erased automatically by a download.** Confirmation is required; the reset button remains disabled while a file is running.
-8. Individual ZIPs contain complete `transcription.txt`, `transcription.docx`, `structured.json` and `articles/<id>.txt/.docx`.
+7. Choose **Prepare collection ZIP** to download all completed newspapers in one **directly extractable** archive with a separate folder for each completed newspaper, or download an individual job ZIP. After clicking a download, the UI asks whether to keep the results or clear the local batch and begin again. **Nothing is erased automatically by a download.** Confirmation is required; the reset button remains disabled while a file is running.
+8. To prevent old requests accumulating, open **Clear previous results (N finished requests)**, confirm deletion and select **Delete all previously finished requests**. This removes completed/failed/cancelled records and their local data, but leaves queued and running files untouched. Individual ZIPs contain complete `transcription.txt`, `transcription.docx`, `structured.json` and `articles/<id>.txt/.docx`.
 
 **Security:** Local-only UI has no authentication. Never expose port 8501 directly on a public network. Files live in `~/.newspaper_ocr_lab` and are removed when you delete a completed/failed job. No API keys are saved in SQLite. The local upload limit is 250 MB per file; PDF page cap defaults to 500 pages per file; processing speed depends on available RAM/CPU/GPU.
 
@@ -49,10 +49,12 @@ For French scans, install Tesseract French trained data and select `fra` or `eng
 - **Pretrained** (default): DocLayout-YOLO DocStructBench checkpoint. The detector excludes figures and abandoned regions, tries to recognize text and title regions, then each text region is transcribed independently with Tesseract. A sparse-OCR recovery pass flags text outside detected boxes as **unassigned** for researcher review; this can recover missed headlines but can also introduce false positives. Source model: https://github.com/opendatalab/DocLayout-YOLO and https://huggingface.co/juliozhao/DocLayout-YOLO-DocStructBench.
 - **XY-cut**: original geometric segmentation, available without optional model dependencies. Used for smoke tests and as a diagnostic baseline.
 - **Vision verification off** (default): fully local, no API.
-- **Local Ollama**: requires `ollama serve` and an installed vision model; select Local Ollama in sidebar. Vision suggestions are **unreviewed**, never auto-applied.
+- **Local Ollama**: install the free Ollama executable once (`brew install ollama` on macOS); then check **Enable local Ollama verification** in the sidebar. The worker automatically starts or reuses the local Ollama process, and downloads the chosen vision model on first use. **You do not have to run `ollama serve` separately.** The inference process still runs internally at localhost, not on a cloud service. First use needs internet, enough disk space and memory; model inference may take additional time. Vision suggestions are **unreviewed**, never auto-applied.
 - **OpenAI API**: optionally set `export OPENAI_API_KEY=...` **before launching**; separate usage charges and document permissions apply. The key is not saved in job metadata.
 
 **Licensing:** DocLayout-YOLO software is AGPL-3.0. Review that license and the model weights' terms before distributing or hosting the program.
+
+For a full breakdown of every project file, how Ollama is started automatically, the data flow, and ZIP structure, see **[TECHNICAL_DOCUMENTATION.md](TECHNICAL_DOCUMENTATION.md)**.
 
 ## Tests
 
