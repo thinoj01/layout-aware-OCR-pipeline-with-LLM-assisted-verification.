@@ -213,3 +213,24 @@ def queue_estimates(jobs, now=None):
             "rate_seconds_per_page":rate,
         }
     return estimate
+
+
+def delete_finished():
+    """Delete only completed, failed and cancelled jobs, including their source files.
+
+    Queued and running jobs are untouched. Selection and deletion use one SQLite
+    write transaction, preventing the worker from claiming a selected pending job.
+    Returns the number of deleted jobs.
+    """
+    terminal=("completed","failed","cancelled")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        rows=db.execute(
+            "SELECT id FROM jobs WHERE status IN (?,?,?)",terminal
+        ).fetchall()
+        ids=[row["id"] for row in rows]
+        if ids:
+            db.executemany("DELETE FROM jobs WHERE id=?",[(job_id,) for job_id in ids])
+    for job_id in ids:
+        shutil.rmtree(job_dir(job_id),ignore_errors=True)
+    return len(ids)
