@@ -28,10 +28,11 @@ def invalidate_archive():
 
 with st.sidebar:
     st.header("New transcription job")
-    backend=st.selectbox("Layout detector",["pretrained","xycut"],index=0)
-    language=st.text_input("Tesseract languages","eng")
-    dpi=st.slider("PDF rendering DPI",150,400,250,25)
-    threshold=st.slider("Review below OCR confidence",0,100,80)
+    # Research-oriented defaults: keep calibration controls out of the normal interface.
+    backend="pretrained"
+    language="eng"
+    dpi=300
+    threshold=80
     ollama_enabled=st.checkbox("Enable local Ollama verification",value=False,
         help="The worker automatically starts Ollama if needed and installs the vision model on first use. No separate Terminal or API key is needed.")
     model="gpt-4.1-mini"
@@ -46,7 +47,7 @@ with st.sidebar:
             key=os.getenv("OPENAI_API_KEY","")
             st.caption("Set OPENAI_API_KEY in your shell. The key is not stored in SQLite.")
             model=st.text_input("OpenAI model",model)
-    limit=st.number_input("Maximum verified regions per page",1,40,5)
+    limit=5  # Bound expensive optional verification automatically.
     st.caption("The UI and files remain local unless you explicitly select an external API.")
 
 if "upload_nonce" not in st.session_state:
