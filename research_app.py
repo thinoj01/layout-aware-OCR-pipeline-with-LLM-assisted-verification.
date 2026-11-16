@@ -130,7 +130,7 @@ def show():
         st.session_state["research_conversation"]=[]
         history=[]
         st.rerun()
-    limit=st.slider("Maximum source passages per answer",2,10,6)
+    limit=6  # Internal retrieval budget; not a researcher-facing decision.
     for turn in history:
         with st.chat_message("user"):
             st.write(turn["query"])
@@ -142,6 +142,8 @@ def show():
             if turn["hits"]:
                 with st.expander(f"Inspect {len(turn['hits'])} source passages"):
                     show_sources(turn["hits"])
+            if turn.get("evidence_note"):
+                st.info(turn["evidence_note"])
             if turn.get("citation_warning"):
                 st.warning(turn["citation_warning"])
             if turn["hits"]:
@@ -157,46 +159,58 @@ def show():
         if kind!="research":
             record["answer"]=interface_reply(
                 kind,len(passages),len(selected)+(1 if uploaded is not None else 0))
-        elif not passages:
-            record["answer"]=(
-                "I cannot answer a newspaper research question yet because "
-                "no transcripts are loaded. Complete an OCR job, select completed "
-                "newspapers, or upload a TXT transcript above.")
         else:
             previous=[item["query"] for item in history[-2:]
                       if classify_chat_message(item["query"])=="research"]
             retrieval_query=" ".join(previous+[query]) if previous else query
-            hits=retrieve(passages,retrieval_query,limit=limit)
+            hits=retrieve(passages,retrieval_query,limit=limit) if passages else []
             record["hits"]=hits
-            if not hits:
-                record["answer"]=(
-                    "I couldn't locate a passage matching those terms in the selected "
-                    "transcripts. This does not prove the topic is absent; try "
-                    "different keywords, spellings, or a larger document selection. "
-                    "No model-generated claim was made without supporting evidence.")
+            if hits:
+                prompt=build_prompt(query,hits)
+                if history:
+                    context="Previous dialogue (background only; not evidence):\\n"
+                    for turn in history[-3:]:
+                        context+=("Researcher: "+turn["query"]+"\\n"
+                                  "Assistant: "+(turn.get("answer") or "")[:1500]+"\\n")
+                    prompt=context+"\\n"+prompt
             else:
-                try:
-                    with st.status("Retrieving and interpreting evidence...",
-                                   expanded=True) as status:
-                        prompt=build_prompt(query,hits)
-                        if history:
-                            context="Previous dialogue (background only; not evidence):\\n"
-                            for turn in history[-3:]:
-                                context+=(
-                                    "Researcher: "+turn["query"]+"\\n"
-                                    "Assistant: "+(turn.get("answer") or "")[:1500]+"\\n")
-                            prompt=context+"\\n"+prompt
-                        if provider.startswith("Local"):
-                            response=local_answer(prompt,model,
-                                progress=lambda message:st.write(message))
-                        else:
-                            response=openai_answer(prompt,model)
-                        status.update(label="Answer generated",state="complete")
-                    record["answer"]=response
-                    if not mentioned_citations(response,len(hits)):
-                        record["citation_warning"]=(
-                            "The model did not provide valid source citation markers.")
-                except Exception as exc:
-                    record["error"]=str(exc)
+                # No passages or no lexical match must not disable the chatbot.
+                # Explicitly forbid claiming to have documentary evidence.
+                prompt=(
+                    "You are an assistant in a historical newspaper research workspace. "
+                    "Respond helpfully to the user's message. "
+                    "There are no retrieved newspaper passages relevant to this question. "
+                    "Do not pretend you consulted a newspaper or invent document citations. "
+                    "If the question asks for claims about this collection, explain that "
+                    "the available text does not establish an answer, and suggest search "
+                    "terms or importing transcriptions. For general questions and "
+                    "conversation, answer normally.\\n\\n"
+                    "User: "+query
+                )
+                if history:
+                    for turn in history[-3:]:
+                        prompt+=("\\nPrevious user: "+turn["query"]
+                                 +"\\nPrevious assistant: "
+                                 +(turn.get("answer") or "")[:1000])
+            try:
+                with st.status("Generating answer...",expanded=True) as status:
+                    if provider.startswith("Local"):
+                        response=local_answer(prompt,model,
+                            progress=lambda message:st.write(message))
+                    else:
+                        response=openai_answer(prompt,model)
+                    status.update(label="Answer generated",state="complete")
+                record["answer"]=response
+                if hits and not mentioned_citations(response,len(hits)):
+                    record["citation_warning"]=(
+                        "The model did not provide valid source citation markers.")
+                if not hits and passages:
+                    record["evidence_note"]=(
+                        "No matching source passages were retrieved. "
+                        "This response is not evidence about the newspaper collection.")
+            except Exception as exc:
+                record["error"]=(
+                    "The selected AI model could not respond: "+str(exc)
+                    +". Check Model configuration and Test model connection.")
         st.session_state["research_conversation"].append(record)
         st.rerun()
