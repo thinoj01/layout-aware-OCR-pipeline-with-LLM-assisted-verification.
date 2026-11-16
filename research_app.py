@@ -106,45 +106,62 @@ def show():
                 st.error(f"Theme analysis failed: {exc}")
         return
 
-    st.subheader("Ask questions about the newspapers")
-    query=st.text_area("Research question",
-        placeholder="How do these newspapers describe immigration, and which articles support those descriptions?",
-        height=90)
-    limit=st.slider("Maximum source passages",2,10,6)
-    if st.button("Find sources and answer",type="primary",disabled=not query.strip()):
-        hits=retrieve(passages,query,limit=limit)
+    st.subheader("Research chatbot")
+    st.caption("Follow-up questions use your recent question history to retrieve related "
+               "passages. Each answer has its own evidence, which remains visible in this session.")
+    if "research_conversation" not in st.session_state:
+        st.session_state["research_conversation"]=[]
+    history=st.session_state["research_conversation"]
+    control,other=st.columns([1,3])
+    if control.button("Clear chat",key="clear_research_chat"):
+        st.session_state["research_conversation"]=[]
+        history=[]
+        st.rerun()
+    limit=st.slider("Maximum source passages per answer",2,10,6)
+    for turn in history:
+        with st.chat_message("user"):
+            st.write(turn["query"])
+        with st.chat_message("assistant"):
+            if turn.get("answer"):
+                st.markdown(turn["answer"])
+            elif turn.get("error"):
+                st.error(turn["error"])
+            with st.expander(f"Inspect {len(turn['hits'])} source passages"):
+                show_sources(turn["hits"])
+            if turn["hits"]:
+                st.download_button("Export this answer and its evidence (JSON)",
+                    data=json.dumps(turn,ensure_ascii=False,indent=2),
+                    file_name=f"research_answer_{turn['index']}.json",
+                    key=f"export_research_{turn['index']}",mime="application/json")
+    query=st.chat_input("Ask about the newspapers, or follow up on a previous theme")
+    if query:
+        previous=[item["query"] for item in history[-2:]]
+        retrieval_query=" ".join(previous+[query]) if previous else query
+        hits=retrieve(passages,retrieval_query,limit=limit)
+        record={"index":len(history)+1,"query":query,"hits":hits,
+                "provider":provider,"model":model}
         if not hits:
-            st.warning("No lexical matches found in the selected documents. "
-                       "Try different words or spelling variants.")
-            return
-        st.session_state["research_last"]={
-            "query":query,"hits":hits,"provider":provider,"model":model
-        }
-        try:
-            with st.status("Retrieving and analyzing evidence...",expanded=True) as status:
-                prompt=build_prompt(query,hits)
-                if provider.startswith("Local"):
-                    response=local_answer(prompt,model,progress=lambda message:st.write(message))
-                else:
-                    response=openai_answer(prompt,model)
-                status.update(label="Answer generated",state="complete")
-            st.session_state["research_last"]["answer"]=response
-        except Exception as exc:
-            st.session_state["research_last"]["answer"]=None
-            st.error(f"Answer generation failed: {exc}. Retrieved source passages remain available.")
-    record=st.session_state.get("research_last")
-    if record:
-        if record.get("answer"):
-            st.subheader("Model answer")
-            st.markdown(record["answer"])
-            if not mentioned_citations(record["answer"],len(record["hits"])):
-                st.warning("The answer did not include valid [S1] citation markers. "
-                           "Treat it as unverified and consult the passages below.")
-        st.subheader("Evidence")
-        st.caption("Source IDs in the answer refer to the exact passages below. "
-                   "These excerpts are retrieved, not independently fact-checked. "
-                   "Citations are not proof that the model's interpretation is correct.")
-        show_sources(record["hits"])
-        st.download_button("Download answer and supporting sources (JSON)",
-            data=json.dumps(record,ensure_ascii=False,indent=2),
-            file_name="newspaper_research_evidence.json",mime="application/json")
+            record["error"]="No matching text found. Try another keyword or spelling."
+        else:
+            try:
+                with st.status("Retrieving and interpreting evidence...",expanded=True) as status:
+                    prompt=build_prompt(query,hits)
+                    if history:
+                        context="Previous dialogue (background only; do not use as evidence):\\n"
+                        for turn in history[-3:]:
+                            context+=("Researcher: "+turn["query"]+"\\n"
+                                      "Assistant: "+(turn.get("answer") or "")[:1500]+"\\n")
+                        prompt=context+"\\n"+prompt
+                    if provider.startswith("Local"):
+                        response=local_answer(prompt,model,
+                            progress=lambda message:st.write(message))
+                    else:
+                        response=openai_answer(prompt,model)
+                    status.update(label="Answer generated",state="complete")
+                record["answer"]=response
+                if not mentioned_citations(response,len(hits)):
+                    record["citation_warning"]="The model did not provide valid source citation markers."
+            except Exception as exc:
+                record["error"]=str(exc)
+        st.session_state["research_conversation"].append(record)
+        st.rerun()
