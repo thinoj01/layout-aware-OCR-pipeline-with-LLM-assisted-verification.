@@ -133,8 +133,10 @@ def verify_region(image, text, settings):
     return {"suggestion":response.output_text.strip(), "model":settings.model,
             "status":"proposed_unreviewed"}
 
-def transcribe_page(img, page_no, settings):
+def transcribe_page(img, page_no, settings, progress=None):
     """Layout-first independent region OCR; no reading across column gutters."""
+    report=progress or (lambda message: None)
+    report(f"Page {page_no}: detecting text regions")
     prepared=prepare(img)
     if settings.layout_backend == "pretrained":
         from pretrained_layout import detect_pretrained
@@ -156,7 +158,9 @@ def transcribe_page(img, page_no, settings):
         from layout import Block
         blocks=[Block([0,0,img.width,img.height],1,source="fallback")]
     regions=[]
+    report(f"Page {page_no}: OCR on {len(blocks)} detected regions")
     for i,block in enumerate(blocks,1):
+        report(f"Page {page_no}: OCR region {i}/{len(blocks)}")
         x0,y0,x1,y1=block.bbox
         pad=6
         crop=prepared.crop((max(0,x0-pad),max(0,y0-pad),
@@ -191,7 +195,9 @@ def transcribe_page(img, page_no, settings):
     if settings.verify:
         if not settings.model.startswith("ollama:") and not settings.api_key:
             raise ValueError("An API key is required for OpenAI verification")
-        for region in sorted(regions,key=lambda r:r["ocr_confidence"])[:settings.max_verify_regions]:
+        candidates=sorted(regions,key=lambda r:r["ocr_confidence"])[:settings.max_verify_regions]
+        for n,region in enumerate(candidates,1):
+            report(f"Page {page_no}: verifying region {n}/{len(candidates)} with {settings.model}")
             x1,y1,x2,y2=region["bbox"]
             crop=img.crop((max(0,x1-12),max(0,y1-12),
                            min(img.width,x2+12),min(img.height,y2+12)))
@@ -204,6 +210,10 @@ def transcribe_page(img, page_no, settings):
                     region["verification"]=verify_region(crop,region["text"],settings)
             except Exception as exc:
                 region["verification"]={"status":"failed","error":str(exc)[:250]}
+                report(f"Page {page_no}: verification {n}/{len(candidates)} failed: {str(exc)[:110]}")
+            else:
+                report(f"Page {page_no}: verified region {n}/{len(candidates)}")
+    report(f"Page {page_no}: building preview")
     import base64
     viz=overlay(img,regions)
     if viz.width>1500:
