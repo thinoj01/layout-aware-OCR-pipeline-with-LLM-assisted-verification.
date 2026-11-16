@@ -2,7 +2,7 @@
 import base64
 import os
 import streamlit as st
-from jobs import (submit,list_jobs,delete,delete_many,request_cancel,
+from jobs import (submit,list_jobs,delete,delete_many,delete_finished,request_cancel,
                   queue_estimates,_duration)
 from review import (load_result,save_region,export_job,export_completed_collection)
 
@@ -114,6 +114,23 @@ def live_queue():
 live_queue()
 st.divider()
 st.subheader("Completed newspapers and review")
+# Dedicated history cleanup: never touches queued or currently processing files.
+finished_count=sum(j["status"] in ("completed","failed","cancelled")
+                   for j in list_jobs())
+with st.expander(f"Clear previous results ({finished_count} finished requests)",expanded=False):
+    st.caption("Remove all completed, failed, and cancelled requests, including saved "
+               "newspaper scans, edited transcriptions and generated exports. "
+               "Waiting and processing files will remain in the queue.")
+    confirm=st.checkbox("I understand that saved results will be permanently deleted",
+                        key="confirm_clear_finished")
+    if st.button("Delete all previously finished requests",
+                 key="clear_finished",disabled=not(confirm and finished_count)):
+        removed=delete_finished()
+        invalidate_archive()
+        st.session_state["reset_prompt"]=False
+        st.session_state["confirm_clear_finished"]=False
+        st.success(f"Deleted {removed} finished request(s).")
+        st.rerun()
 if st.button("Refresh completed results",key="refresh_results"):
     st.rerun()
 jobs=list_jobs()
