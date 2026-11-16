@@ -25,17 +25,22 @@ with st.sidebar:
     language=st.text_input("Tesseract languages","eng")
     dpi=st.slider("PDF rendering DPI",150,400,250,25)
     threshold=st.slider("Review below OCR confidence",0,100,80)
-    verification=st.selectbox("Vision verification",["Off","Local Ollama","OpenAI API"])
+    ollama_enabled=st.checkbox("Enable local Ollama verification",value=False,
+        help="The worker automatically starts Ollama if needed and installs the vision model on first use. No separate Terminal or API key is needed.")
     model="gpt-4.1-mini"
     key=None
-    if verification=="Local Ollama":
-        model="ollama:"+st.text_input("Local Ollama model","qwen3-vl:4b")
-    elif verification=="OpenAI API":
-        key=os.getenv("OPENAI_API_KEY","")
-        st.caption("Set OPENAI_API_KEY in your shell. The key is not stored in SQLite.")
-        model=st.text_input("OpenAI model",model)
+    if ollama_enabled:
+        verification="Local Ollama"
+        model="ollama:"+st.text_input("Vision model","qwen3-vl:4b")
+        st.caption("Ollama starts automatically when processing begins. First use may download a large free vision model and requires Ollama installed on this Mac.")
+    else:
+        verification=st.selectbox("Other verification",["Off","OpenAI API"])
+        if verification=="OpenAI API":
+            key=os.getenv("OPENAI_API_KEY","")
+            st.caption("Set OPENAI_API_KEY in your shell. The key is not stored in SQLite.")
+            model=st.text_input("OpenAI model",model)
     limit=st.number_input("Maximum verified regions per page",1,40,5)
-    st.caption("The UI and files are local. Ollama requires a separate local server.")
+    st.caption("The UI and files remain local unless you explicitly select an external API.")
 
 if "upload_nonce" not in st.session_state:
     st.session_state["upload_nonce"]=0
