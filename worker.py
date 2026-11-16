@@ -25,13 +25,13 @@ def process_job(job_id):
     src=inputs[0]
     opts=json.loads(record["options"])
     settings=Settings(**opts)
-    if settings.verify and settings.model.startswith("ollama:"):
-        from ollama_runtime import ensure_ollama
-        ensure_ollama(settings.model.split(":",1)[1])
-    elif settings.verify:
-        settings.api_key=os.environ.get("OPENAI_API_KEY")
     pages=[]
     try:
+        if settings.verify and settings.model.startswith("ollama:"):
+            from ollama_runtime import ensure_ollama
+            ensure_ollama(settings.model.split(":",1)[1])
+        elif settings.verify:
+            settings.api_key=os.environ.get("OPENAI_API_KEY")
         if get_job(job_id)["cancel_requested"]:
             change(job_id,"cancelled")
             return
