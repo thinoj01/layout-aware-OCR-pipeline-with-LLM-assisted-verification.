@@ -31,6 +31,8 @@ def connect():
         db.execute("ALTER TABLE jobs ADD COLUMN started_at REAL")
     if "cancel_requested" not in columns:
         db.execute("ALTER TABLE jobs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0")
+    if "stage" not in columns:
+        db.execute("ALTER TABLE jobs ADD COLUMN stage TEXT NOT NULL DEFAULT ''")
     db.commit()
     return db
 
@@ -234,3 +236,16 @@ def delete_finished():
     for job_id in ids:
         shutil.rmtree(job_dir(job_id),ignore_errors=True)
     return len(ids)
+
+
+def set_stage(job_id, message):
+    """Persistent human-readable progress within a page, including Ollama setup.
+
+    Do not alter updated timestamp: ETA calculations use updated for completed
+    jobs as their actual end time, and stage is not page completion.
+    """
+    if len(message)>240:
+        message=message[:240]
+    with connect() as db:
+        db.execute("UPDATE jobs SET stage=? WHERE id=? AND status='running'",
+                   (message,job_id))
