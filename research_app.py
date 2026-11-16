@@ -8,7 +8,8 @@ import json
 import streamlit as st
 from research import (
     corpus_from_jobs,uploaded_passages,retrieve,top_terms,
-    build_prompt,local_answer,openai_answer,mentioned_citations
+    build_prompt,local_answer,openai_answer,mentioned_citations,
+    classify_chat_message,interface_reply
 )
 from jobs import list_jobs
 
@@ -52,8 +53,7 @@ def show():
         except (UnicodeDecodeError,ValueError) as exc:
             st.error(f"Could not read TXT: {exc}")
     if not passages:
-        st.info("Complete an OCR job in the Processing view or upload a UTF-8 TXT transcript.")
-        return
+        st.warning("No newspaper passages are loaded. Complete an OCR job, select a completed newspaper above, or upload a TXT transcript. You can still check the chat interface without documents.")
     doc_count=len({p["source_key"].split(":")[0] if p["job_id"] is None
                    else p["job_id"] for p in passages})
     a,b=st.columns(2)
@@ -70,7 +70,20 @@ def show():
         st.caption("Ollama is started automatically when used, provided the executable is installed. "
                    "A model must fit the Mac's available memory. An external API sends retrieved "
                    "newspaper excerpts outside this computer.")
+        if st.button("Test model connection",key="research_model_check"):
+            try:
+                with st.spinner("Contacting the selected model..."):
+                    if provider.startswith("Local"):
+                        answer=local_answer("Reply with the single word READY.",model)
+                    else:
+                        answer=openai_answer("Reply with the single word READY.",model)
+                st.success(f"Model responded: {answer[:160]}")
+            except Exception as exc:
+                st.error(f"Model connection failed: {exc}")
 
+    if mode=="Theme exploration" and not passages:
+        st.info("Load at least one transcript to explore themes.")
+        return
     if mode=="Theme exploration":
         st.subheader("Repeated terms in selected passages")
         st.caption("Counts are numbers of OCR passages containing each word, not numbers "
@@ -126,8 +139,11 @@ def show():
                 st.markdown(turn["answer"])
             elif turn.get("error"):
                 st.error(turn["error"])
-            with st.expander(f"Inspect {len(turn['hits'])} source passages"):
-                show_sources(turn["hits"])
+            if turn["hits"]:
+                with st.expander(f"Inspect {len(turn['hits'])} source passages"):
+                    show_sources(turn["hits"])
+            if turn.get("citation_warning"):
+                st.warning(turn["citation_warning"])
             if turn["hits"]:
                 st.download_button("Export this answer and its evidence (JSON)",
                     data=json.dumps(turn,ensure_ascii=False,indent=2),
@@ -135,33 +151,52 @@ def show():
                     key=f"export_research_{turn['index']}",mime="application/json")
     query=st.chat_input("Ask about the newspapers, or follow up on a previous theme")
     if query:
-        previous=[item["query"] for item in history[-2:]]
-        retrieval_query=" ".join(previous+[query]) if previous else query
-        hits=retrieve(passages,retrieval_query,limit=limit)
-        record={"index":len(history)+1,"query":query,"hits":hits,
+        kind=classify_chat_message(query)
+        record={"index":len(history)+1,"query":query,"hits":[],
                 "provider":provider,"model":model}
-        if not hits:
-            record["error"]="No matching text found. Try another keyword or spelling."
+        if kind!="research":
+            record["answer"]=interface_reply(
+                kind,len(passages),len(selected)+(1 if uploaded is not None else 0))
+        elif not passages:
+            record["answer"]=(
+                "I cannot answer a newspaper research question yet because "
+                "no transcripts are loaded. Complete an OCR job, select completed "
+                "newspapers, or upload a TXT transcript above.")
         else:
-            try:
-                with st.status("Retrieving and interpreting evidence...",expanded=True) as status:
-                    prompt=build_prompt(query,hits)
-                    if history:
-                        context="Previous dialogue (background only; do not use as evidence):\\n"
-                        for turn in history[-3:]:
-                            context+=("Researcher: "+turn["query"]+"\\n"
-                                      "Assistant: "+(turn.get("answer") or "")[:1500]+"\\n")
-                        prompt=context+"\\n"+prompt
-                    if provider.startswith("Local"):
-                        response=local_answer(prompt,model,
-                            progress=lambda message:st.write(message))
-                    else:
-                        response=openai_answer(prompt,model)
-                    status.update(label="Answer generated",state="complete")
-                record["answer"]=response
-                if not mentioned_citations(response,len(hits)):
-                    record["citation_warning"]="The model did not provide valid source citation markers."
-            except Exception as exc:
-                record["error"]=str(exc)
+            previous=[item["query"] for item in history[-2:]
+                      if classify_chat_message(item["query"])=="research"]
+            retrieval_query=" ".join(previous+[query]) if previous else query
+            hits=retrieve(passages,retrieval_query,limit=limit)
+            record["hits"]=hits
+            if not hits:
+                record["answer"]=(
+                    "I couldn't locate a passage matching those terms in the selected "
+                    "transcripts. This does not prove the topic is absent; try "
+                    "different keywords, spellings, or a larger document selection. "
+                    "No model-generated claim was made without supporting evidence.")
+            else:
+                try:
+                    with st.status("Retrieving and interpreting evidence...",
+                                   expanded=True) as status:
+                        prompt=build_prompt(query,hits)
+                        if history:
+                            context="Previous dialogue (background only; not evidence):\\n"
+                            for turn in history[-3:]:
+                                context+=(
+                                    "Researcher: "+turn["query"]+"\\n"
+                                    "Assistant: "+(turn.get("answer") or "")[:1500]+"\\n")
+                            prompt=context+"\\n"+prompt
+                        if provider.startswith("Local"):
+                            response=local_answer(prompt,model,
+                                progress=lambda message:st.write(message))
+                        else:
+                            response=openai_answer(prompt,model)
+                        status.update(label="Answer generated",state="complete")
+                    record["answer"]=response
+                    if not mentioned_citations(response,len(hits)):
+                        record["citation_warning"]=(
+                            "The model did not provide valid source citation markers.")
+                except Exception as exc:
+                    record["error"]=str(exc)
         st.session_state["research_conversation"].append(record)
         st.rerun()
