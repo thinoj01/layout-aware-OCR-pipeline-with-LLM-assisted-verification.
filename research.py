@@ -100,6 +100,41 @@ def top_terms(passages, top_k=25):
         df.update(set(t for t in words(passage["text"]) if len(t)>2))
     return df.most_common(top_k)
 
+def classify_chat_message(message):
+    """Route common interface conversation without pretending it needs citations.
+
+    Only clear greetings and interface-status questions bypass retrieval.
+    Research questions still require retrieved evidence.
+    """
+    normalized=" ".join(words(message,exclude_stop=False))
+    greeting={"hi","hello","hey","hello there","hi there","good morning",
+              "good afternoon","good evening"}
+    status={"is this working","is this even working","are you working",
+            "does this work","is the chatbot working","are you there",
+            "can you hear me","test","testing","hello are you there"}
+    if normalized in greeting:
+        return "greeting"
+    if normalized in status:
+        return "status"
+    return "research"
+
+
+def interface_reply(kind, passage_count, selected_documents):
+    if kind=="greeting":
+        return ("Hello. I can search and analyze your newspaper transcripts. "
+                f"There are currently {passage_count} text passages in the selected corpus "
+                f"from {selected_documents} selected document(s). "
+                "Ask about a specific person, event, theme, or term to retrieve sources.")
+    if kind=="status":
+        return ("The research chat interface is responding. "
+                f"It currently has {passage_count} accessible text passages "
+                f"from {selected_documents} selected document(s). "
+                "This check does not confirm that the Ollama or external AI model is running; "
+                "use Test model connection below to verify the model. "
+                "For source-backed answers, ask about a subject that appears in the documents.")
+    raise ValueError("Unsupported interface message kind")
+
+
 def evidence_context(hits):
     lines=[]
     for i,hit in enumerate(hits,1):
