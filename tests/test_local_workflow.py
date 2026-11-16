@@ -133,8 +133,12 @@ def test_combined_archive_contains_corrected_jobs(tmp_path,monkeypatch):
         }))
         jobs.change(jid,"completed")
     with zipfile.ZipFile(io.BytesIO(export_completed_collection([jid1,jid2]))) as outer:
+        assert outer.testzip() is None
         manifest=json.loads(outer.read("collection_manifest.json"))
-        assert len(manifest)==2
+        assert len(manifest["newspapers"])==2
         for jid,label in [(jid1,"FIRST"),(jid2,"SECOND")]:
-            with zipfile.ZipFile(io.BytesIO(outer.read(f"newspaper_{jid}/transcriptions.zip"))) as inner:
-                assert label in inner.read("transcription.txt").decode("utf8")
+            path=f"newspaper_{jid}/"
+            assert label in outer.read(path+"transcription.txt").decode("utf8")
+            assert path+"transcription.docx" in outer.namelist()
+            assert path+"structured.json" in outer.namelist()
+            assert path+"articles/story.txt" in outer.namelist()
