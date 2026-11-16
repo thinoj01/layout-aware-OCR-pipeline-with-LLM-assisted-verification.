@@ -97,6 +97,11 @@ def live_queue():
             st.markdown(f"**Processing: {job['filename']}**")
             st.progress(min(1.0,job["done"]/max(1,job["total"])),
                         text=f"{job['done']}/{job['total']} pages — estimated remaining {remaining}")
+            if job.get("stage"):
+                st.info(job["stage"])
+            if job["done"]==0:
+                st.caption("Page-based ETA is not reliable until the first page completes. "
+                           "Model downloads and verification may take additional time.")
             if job.get("cancel_requested"):
                 st.caption("Cancellation requested; finishes current page before stopping.")
             elif st.button("Cancel running newspaper",key="cancel_"+job["id"]):
