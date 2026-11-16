@@ -89,17 +89,34 @@ def export_job(job_id):
     return out.getvalue()
 
 def export_completed_collection(job_ids):
-    """Create one archive of completed job archives without cross-job name collisions."""
+    """One standard ZIP containing separate folders for every completed newspaper.
+
+    Individual job archives are unpacked into each unique job directory, so users
+    do not need to extract nested ZIPs. Corrections and article-level DOCX/TXT
+    files are preserved. A missing or unfinished job is skipped explicitly in
+    the collection manifest. No job or source file is removed by exporting.
+    """
     buffer=io.BytesIO()
     manifest=[]
-    with zipfile.ZipFile(buffer,"w",zipfile.ZIP_DEFLATED) as combined:
-        for job_id in job_ids:
+    skipped=[]
+    with zipfile.ZipFile(buffer,"w",zipfile.ZIP_DEFLATED,allowZip64=True) as combined:
+        for job_id in dict.fromkeys(job_ids):
             record=get_job(job_id)
             if record is None or record["status"]!="completed":
+                skipped.append(job_id)
                 continue
-            folder=f"newspaper_{job_id}"
-            combined.writestr(folder+"/transcriptions.zip",export_job(job_id))
-            manifest.append({"job_id":job_id,"filename":record["filename"]})
+            prefix=f"newspaper_{job_id}/"
+            with zipfile.ZipFile(io.BytesIO(export_job(job_id)),"r") as inner:
+                if inner.testzip() is not None:
+                    raise ValueError(f"Corrupt individual archive for {job_id}")
+                for name in inner.namelist():
+                    # Generated names are constrained to remain in this folder.
+                    if name.startswith("/") or ".." in Path(name).parts:
+                        raise ValueError("Invalid entry in individual ZIP")
+                    combined.writestr(prefix+name,inner.read(name))
+            manifest.append({"job_id":job_id,"filename":record["filename"],
+                             "folder":prefix})
         combined.writestr("collection_manifest.json",
-                          json.dumps(manifest,ensure_ascii=False,indent=2))
+            json.dumps({"newspapers":manifest,"skipped_job_ids":skipped},
+                       ensure_ascii=False,indent=2))
     return buffer.getvalue()
