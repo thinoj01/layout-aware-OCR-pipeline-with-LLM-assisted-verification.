@@ -189,6 +189,16 @@ python evaluate.py reference.txt predicted.txt
 
 CER is character substitutions + insertions + deletions divided by reference character count; WER is the same concept over words. This measurement needs an accurate reference transcription. Whitespace is normalized; historic spelling is otherwise preserved.
 
+### `research.py` — source-grounded retrieval and model access
+
+Builds a passage-level corpus from **saved, corrected** completed job regions, with filename, page number, region ID, article ID, OCR confidence and reviewed status retained. Supports supplementary UTF-8 TXT passages. A lightweight BM25 lexical scorer ranks passages for a research question (no embeddings or model training required), and document-frequency counts surface common terms. Constructs strict evidence-only prompts with explicit `[S1]` source references, and can call either the existing local Ollama API or an optional hosted OpenAI API. The code can check that cited source IDs exist, but cannot independently prove the LLM used their text correctly. Results are hypotheses to verify.
+
+### `research_app.py` — second Streamlit workspace
+
+A separate **Research analysis** view accessed using the sidebar switch in `app.py`. The researcher selects completed newspapers or uploads a UTF-8 TXT transcription. The view provides two tools: (1) evidence search and question answering with inspected source excerpts and downloadable evidence JSON, and (2) exploratory repeated-term counts plus a model-assisted theme overview. It provides the original document, page, region and edit-review status for every evidence excerpt.
+
+The prototype does not yet implement vector semantic embeddings, automated article reconstruction, longitudinal topic prevalence, named-entity disambiguation, configurable thematic codebooks or statistical validation. Future work should build these carefully against annotated ground truth.
+
 ## 4. Requirements and project configuration
 
 ### `requirements.txt`
@@ -214,6 +224,7 @@ Shorter user-facing installation, operation, model choices, test commands and li
 - `tests/test_local_workflow.py`: SQLite job queue, invalid uploads, persisted corrections, model-detector stubs, region ordering metadata, and batch ZIP contents.
 - `tests/test_queue_controls.py`: precomputed page counts, queue positions, observed-time ETA arithmetic, waiting-item removal, cancellation and atomic full reset.
 - `tests/test_reading_order.py`: approximate 3- and 4-column layouts, masthead ordering, spanning headings, uncertain blocks and deterministic order.
+- `tests/test_research.py`: corpus retrieval from saved manual edits, BM25 relevance, citation marker validation, term frequencies and TXT provenance.
 - `tests/test_cleanup_exports_ollama.py`: terminal-job bulk cleanup, preservation of active requests, actual ZIP and Word-file opening, corrected contents, multiple-newspaper folder structure and mocked Ollama startup/availability.
 
 **Test limitations:** Unit tests and synthetic sample scans cannot prove accurate transcription of real nineteenth- or twentieth-century newspapers. Model installation and sample inference are covered by a separate CI workflow; local Ollama availability and downloads depend on the machine running the app.
