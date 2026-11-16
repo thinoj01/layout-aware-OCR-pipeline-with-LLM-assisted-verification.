@@ -260,7 +260,7 @@ def build_research_request(question, hits, history=None):
 
 def verified_citations(answer, count):
     """Reject hallucinated source IDs; a valid ID is necessary but not sufficient."""
-    found=[int(n) for n in re.findall(r"\\[S(\\d+)\\]",answer)]
+    found=[int(n) for n in re.findall(r"\[S(\d+)\]",answer)]
     return bool(found) and all(1<=n<=count for n in found)
 
 
