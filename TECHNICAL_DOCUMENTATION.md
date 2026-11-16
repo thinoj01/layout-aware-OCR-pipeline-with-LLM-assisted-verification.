@@ -189,15 +189,40 @@ python evaluate.py reference.txt predicted.txt
 
 CER is character substitutions + insertions + deletions divided by reference character count; WER is the same concept over words. This measurement needs an accurate reference transcription. Whitespace is normalized; historic spelling is otherwise preserved.
 
-### `research.py` — source-grounded retrieval and model access
+### `research.py` — retrieval, strict model policy and secure API key loading
 
-Builds a passage-level corpus from **saved, corrected** completed job regions, with filename, page number, region ID, article ID, OCR confidence and reviewed status retained. Supports supplementary UTF-8 TXT passages. A lightweight BM25 lexical scorer ranks passages for a research question (no embeddings or model training required), and document-frequency counts surface common terms. Constructs strict evidence-only prompts with explicit `[S1]` source references, and can call either the existing local Ollama API or an optional hosted OpenAI API. The code can check that cited source IDs exist, but cannot independently prove the LLM used their text correctly. Results are hypotheses to verify.
+Builds searchable passages from completed OCR files and saved researcher corrections,
+with explicit provenance (filename, page, region, article ID, confidence and review status).
+Provides BM25 lexical retrieval; this is NOT full semantic search and can miss paraphrases.
 
-### `research_app.py` — second Streamlit workspace
+The `RESEARCH_SYSTEM_POLICY` is sent to OpenAI as **API-level instructions**
+separate from the untrusted newspaper passages. It limits the assistant to the
+selected research corpus, requires relevant `[S#]` citations, prohibits outside
+knowledge, instructs the model not to obey instructions within historical text,
+and requires an insufficiency statement when evidence is missing. The
+application checks whether cited IDs exist before displaying an answer.
+Citation syntax checks and prompting reduce hallucination risk but do **not**
+prove that a model's conclusions are supported.
 
-A separate **Research analysis** view accessed using the sidebar switch in `app.py`. The researcher selects completed newspapers or uploads a UTF-8 TXT transcription. The view provides two tools: (1) evidence search and question answering with inspected source excerpts and downloadable evidence JSON, and (2) exploratory repeated-term counts plus a model-assisted theme overview. It provides the original document, page, region and edit-review status for every evidence excerpt.
+`get_openai_api_key` reads a shell environment variable or a local
+`.streamlit/secrets.toml`, which is ignored by Git. Never store a live key
+in source code or commit it to GitHub. Selected excerpts are transmitted
+externally to the OpenAI API for analysis; only the retrieval is local.
 
-The prototype does not yet implement vector semantic embeddings, automated article reconstruction, longitudinal topic prevalence, named-entity disambiguation, configurable thematic codebooks or statistical validation. Future work should build these carefully against annotated ground truth.
+### `research_app.py` — single, source-grounded research chatbot
+
+The sidebar's **Research analysis** workspace contains ONE chatbot. Researchers
+can ask about historical themes, framing, sentiment, named entities, timelines
+and differences among selected newspaper transcripts using natural-language
+questions and follow-ups. There is no separate thematic-analysis mode, model
+provider chooser or source-count slider. OpenAI is the default research model.
+The chatbot refuses source-free answers, rejects missing or invalid citation
+markers, preserves per-answer source excerpts, and supports evidence JSON export.
+
+Broad overview questions use a bounded representative retrieval sample;
+these are not comprehensive population-level analyses. The user must inspect
+original scans for important research claims. The chat history exists in
+Streamlit session state and is not a permanent research database.
 
 ## 4. Requirements and project configuration
 
