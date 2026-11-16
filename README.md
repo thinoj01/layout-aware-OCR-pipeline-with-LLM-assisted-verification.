@@ -26,18 +26,54 @@ Open **http://127.0.0.1:8501**. The app runs only on your computer. `launch.py` 
 
 **First pretrained use requires internet:** DocLayout-YOLO weights are downloaded from Hugging Face and cached. It does **not** incur an API charge. The model can use substantial RAM and may be slow on CPU.
 
-For French scans, install Tesseract French trained data and select `fra` or `eng+fra`. Ubuntu can install Tesseract via `apt install tesseract-ocr`.
+The default OCR language is English. For French scans, install the French Tesseract trained data and change the internal language configuration (or add language selection in a future multilingual version). Ubuntu can install Tesseract via `apt install tesseract-ocr`.
 
-## Research analysis workspace (new)
+## One research chatbot (OpenAI API)
 
-Choose **Research analysis** from the sidebar to work with previously completed newspaper OCR jobs, including any saved manual corrections. The application also accepts a UTF-8 `.txt` transcript directly. This workspace:
+Select **Research analysis**. This workspace contains **one chatbot** for all
+questions about selected newspaper passages, including topic exploration,
+theme comparisons, framing, sentiment, named entities and follow-up questions.
+There is no separate theme-analysis tab or evidence-mode selector.
 
-- Retrieves passages from the selected newspapers with locally computed **BM25 lexical search**. Each hit includes its original filename, page, region ID, article label and review status. Search is not yet an embedding-based semantic search.
-- Lets you ask natural-language questions, continue with follow-up questions in a **multi-turn chat**, and request a **source-grounded answer** from Ollama (local) or the OpenAI API (optional external cloud); the answer is instructed to cite evidence as `[S1]`, `[S2]`, etc. Expand each evidence passage to inspect the exact saved text. The application explicitly warns when the answer has no valid citations. LLM citations are not proof of correctness: researchers should still inspect the underlying source image.
-- Shows repeated terms across OCR passages (passage frequency, **not** article prevalence). An optional theme-analysis button asks the model to describe recurring themes using selected evidence. This is exploratory; it is not a validated qualitative coding system.
-- Exports the answer or theme analysis **together with its supporting passages as JSON**, preserving provenance.
+The chatbot only answers from text passages of completed, selected OCR jobs
+(including saved manual corrections) or an uploaded UTF-8 TXT transcript.
+It searches relevant passages locally and sends **only those excerpts** to
+OpenAI's API. Every substantive factual claim must include a source ID
+such as `[S1]`. Each response includes expandable source passages with
+document filenames, page numbers and region IDs.
 
-**Recommended architecture:** Use retrieval over the corrected corpus with an existing model, called via a local Ollama API (no paid service) or your own application backend that calls a hosted API. Do not train a new language model for the initial version. A later stage can add embedding search, researcher-approved codebooks, categorical annotation, historical date/entity metadata, inter-annotator agreement, and topic trends.
+For reliability, research-only instructions are provided as API-level
+instructions rather than mixed into the newspaper text. The application
+rejects outputs lacking valid source IDs, avoids answering without retrieved
+evidence, and treats passages as untrusted data. **No prompt can guarantee**
+that every model inference is correct: verify citations against the excerpts
+and original scans. BM25 retrieval can miss paraphrases or OCR spelling errors.
+
+### Secure API key setup on a Mac
+
+1. Visit [OpenAI API keys](https://platform.openai.com/api-keys), sign in,
+   create a secret key and configure API billing as needed.
+   ChatGPT subscriptions and OpenAI API billing are separate.
+2. In the project folder, create `.streamlit/secrets.toml`. Example:
+
+   ```toml
+   OPENAI_API_KEY = "your-actual-key"
+   ```
+
+   The path `.streamlit/secrets.toml` is already covered by `.gitignore`.
+   Never paste the actual key into GitHub or a chat message.
+3. Restart `python launch.py`. Select **Research analysis** and confirm
+   the status is **OpenAI API key configured**.
+
+Alternatively set the shell environment variable `OPENAI_API_KEY`
+**before** launching the app. The key is read locally, not stored in the
+SQLite queue or exported ZIPs. Selected transcript excerpts are sent to
+OpenAI when a research question is submitted, so verify research permissions.
+
+The analysis uses `gpt-4.1-mini` by default as a starting cost/quality choice.
+The chatbot stores conversation context in the Streamlit session, not in a
+separate permanent database. Generated themes are interpretations of retrieved
+passages, **not** validated qualitative codes or corpus-level prevalence.
 
 ## Ollama verification progress and troubleshooting
 
@@ -48,7 +84,7 @@ After a job completes, use **Refresh completed results** and inspect *Unreviewed
 ## How professors would use it
 
 1. Upload several PDF or image newspapers.
-2. Pick the **pretrained** layout model, choose OCR language, DPI, and review threshold.
+2. The app uses the pretrained layout model, English OCR, 300 DPI and a review threshold internally; the professor does not configure those parameters.
 3. Add files to queue. The separate worker processes one file at a time; submitted jobs survive restarting the UI.
 4. The queue refreshes every five seconds. It shows each waiting file's position, page count, and estimated time before processing begins. Estimates are calculated from actual observed processing speed and show **Calculating...** when there is not enough evidence yet. Use **Refresh completed results** to load finished jobs into the review interface.
    - Select **Remove** beside a waiting newspaper to delete it immediately.
