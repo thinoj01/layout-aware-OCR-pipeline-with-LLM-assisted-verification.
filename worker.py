@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import time
 from pathlib import Path
 from jobs import get_job, claim, change, job_dir, restart_interrupted
@@ -70,6 +71,10 @@ def run(once=False,poll_seconds=2):
             time.sleep(poll_seconds)
 
 if __name__=="__main__":
+    def _shutdown(signum,frame):
+        raise SystemExit(0)
+    signal.signal(signal.SIGTERM,_shutdown)
+    signal.signal(signal.SIGINT,_shutdown)
     parser=argparse.ArgumentParser()
     parser.add_argument("--once",action="store_true")
     args=parser.parse_args()
